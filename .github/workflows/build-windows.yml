@@ -165,8 +165,9 @@ jobs:
         run: |
           for f in pub.log create.log analyze.log build.log inno.log; do
             [ -f "$f" ] || continue
-            msg=$(grep -E " error •|Error|error:|error C|error LNK|FAILED|Exception|not found|Could not|CMake Error" "$f" | head -40 || true)
+            msg=$(grep -A8 -E " error - |error:|error C|error LNK|FAILED|Exception|Could not|CMake Error" "$f" | head -60 || true)
             [ -n "$msg" ] || msg=$(tail -n 30 "$f")
+            msg="$msg"$'\n--- final del log ---\n'"$(tail -n 15 "$f")"
             msg="${msg//'%'/'%25'}"
             msg="${msg//$'\n'/'%0A'}"
             echo "::error title=$f::$msg"
