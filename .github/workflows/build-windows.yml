@@ -66,6 +66,9 @@ jobs:
           if [ ! -d windows ]; then
             flutter create --platforms=windows --project-name vinyl_solutions --org com.pytngdfv1 . 2>&1 | tee create.log
           fi
+          # La plantilla trae un test que no aplica a esta app.
+          rm -f test/widget_test.dart
+          rmdir test 2>/dev/null || true
           test -f windows/runner/Runner.rc
 
       - name: Clave pública de actualizaciones
