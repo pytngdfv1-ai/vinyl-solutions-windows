@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2022  # Flutter 3.24 no detecta el Visual Studio de windows-latest
     env:
       DSA_PRIV_PEM: ${{ secrets.DSA_PRIV_PEM }}
     steps:
