@@ -1,0 +1,213 @@
+name: Build Windows
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versión de prueba (X.Y.Z). Solo compila; no publica."
+        required: false
+        default: "0.1.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      DSA_PRIV_PEM: ${{ secrets.DSA_PRIV_PEM }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Versión
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+            VER="${TAG#v}"
+            if ! echo "$VER" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error title=Etiqueta inválida::Usa el formato vX.Y.Z (ej. v1.0.0). Recibí: $TAG"
+              exit 1
+            fi
+            prev=$(git tag -l 'v[0-9]*' | grep -vx "$TAG" | sed 's/^v//' | sort -V | tail -1 || true)
+            if [ -n "$prev" ] && [ "$(printf '%s\n%s\n' "$prev" "$VER" | sort -V | tail -1)" != "$VER" ]; then
+              echo "::error title=La versión debe crecer::$VER no es mayor que la anterior ($prev)."
+              exit 1
+            fi
+            echo "RELEASE=true" >> "$GITHUB_ENV"
+          else
+            TAG=""
+            VER="${{ github.event.inputs.version }}"
+            [ -n "$VER" ] || VER="0.1.0"
+            echo "RELEASE=false" >> "$GITHUB_ENV"
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VER=$VER" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "Versión: $VER (compilación ${{ github.run_number }})"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.x"
+          channel: stable
+          cache: true
+
+      - name: Dependencias
+        shell: bash
+        run: flutter pub get 2>&1 | tee pub.log
+
+      - name: Generar destino Windows (si falta)
+        shell: bash
+        run: |
+          if [ ! -d windows ]; then
+            flutter create --platforms=windows --project-name vinyl_solutions --org com.pytngdfv1 . 2>&1 | tee create.log
+          fi
+          test -f windows/runner/Runner.rc
+
+      - name: Clave pública de actualizaciones
+        shell: bash
+        run: |
+          if [ -f dsa_pub.pem ]; then
+            if ! grep -q "DSAPub" windows/runner/Runner.rc; then
+              printf '\n// WinSparkle\nDSAPub      DSAPEM      "../../dsa_pub.pem"\n' >> windows/runner/Runner.rc
+            fi
+            echo "Clave pública incluida en Runner.rc"
+          elif [ "$RELEASE" = "true" ]; then
+            echo "::error title=Falta dsa_pub.pem::Genera las claves (ver README) y sube dsa_pub.pem al repo antes de publicar una versión."
+            exit 1
+          else
+            echo "::warning title=Sin dsa_pub.pem::Compilación de prueba sin firma de actualizaciones."
+          fi
+
+      - name: Analizar
+        shell: bash
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.log
+
+      - name: Compilar Windows
+        shell: bash
+        run: |
+          flutter build windows --release --build-name="$VER" --build-number="$BUILD_NUMBER" 2>&1 | tee build.log
+          REL="build/windows/x64/runner/Release"
+          test -f "$REL/vinyl_solutions.exe" || { echo "::error title=Sin exe::No existe vinyl_solutions.exe"; exit 1; }
+          # Runtime de Visual C++ junto a la app (para PCs sin él instalado).
+          for d in msvcp140.dll vcruntime140.dll vcruntime140_1.dll; do
+            [ -f "/c/Windows/System32/$d" ] && cp "/c/Windows/System32/$d" "$REL/" || echo "No se encontró $d"
+          done
+          ls "$REL"
+
+      - name: Instalador (Inno Setup)
+        shell: bash
+        run: |
+          choco install innosetup -y --no-progress 2>&1 | tee inno.log
+          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          test -f "$ISCC" || { echo "::error title=Inno Setup::No se encontró ISCC.exe"; exit 1; }
+          mkdir -p dist
+          "$ISCC" "/DAppVersion=$VER" "/DSourceDir=$(cygpath -w "$PWD/build/windows/x64/runner/Release")" "/DOutputDir=$(cygpath -w "$PWD/dist")" installer/VinylSolutions.iss 2>&1 | tee -a inno.log
+          test -s dist/VinylSolutions-Setup.exe || { echo "::error title=Sin instalador::No se creó VinylSolutions-Setup.exe"; exit 1; }
+
+      - name: ZIP portable
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "dist/VinylSolutions-portable.zip" -Force
+          if (-not (Test-Path "dist/VinylSolutions-portable.zip")) { throw "No se creó el ZIP" }
+
+      - name: Appcast firmado
+        if: env.RELEASE == 'true'
+        shell: bash
+        run: |
+          if [ -z "$DSA_PRIV_PEM" ]; then
+            echo "::error title=Falta el secreto DSA_PRIV_PEM::Agrégalo en Settings > Secrets and variables > Actions (ver README)."
+            exit 1
+          fi
+          printf '%s\n' "$DSA_PRIV_PEM" > "$RUNNER_TEMP/dsa_priv.pem"
+          SIG=$(openssl dgst -sha1 -binary < dist/VinylSolutions-Setup.exe | openssl dgst -sha1 -sign "$RUNNER_TEMP/dsa_priv.pem" | openssl enc -base64 -A)
+          rm -f "$RUNNER_TEMP/dsa_priv.pem"
+          [ -n "$SIG" ] || { echo "::error title=Firma vacía::No se pudo firmar el instalador"; exit 1; }
+          # Misma cadena de versión que lleva el .exe (la que compara WinSparkle).
+          PV=$(powershell -NoProfile -Command "(Get-Item 'build/windows/x64/runner/Release/vinyl_solutions.exe').VersionInfo.ProductVersion" | tr -d '\r')
+          [ -n "$PV" ] || PV="$VER"
+          SIZE=$(stat -c %s dist/VinylSolutions-Setup.exe)
+          URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/VinylSolutions-Setup.exe"
+          cat > dist/appcast.xml <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>VinylSolutions</title>
+              <item>
+                <title>Versión ${VER}</title>
+                <pubDate>$(date -u +"%a, %d %b %Y %H:%M:%S +0000")</pubDate>
+                <enclosure url="${URL}"
+                           sparkle:version="${PV}"
+                           sparkle:shortVersionString="${VER}"
+                           sparkle:os="windows"
+                           sparkle:installerArguments="/SILENT /NORESTART /SP-"
+                           sparkle:dsaSignature="${SIG}"
+                           length="${SIZE}"
+                           type="application/octet-stream" />
+              </item>
+            </channel>
+          </rss>
+          EOF
+          test -s dist/appcast.xml
+          echo "ProductVersion del exe: $PV"
+          cat dist/appcast.xml
+
+      - name: Mostrar errores
+        if: failure()
+        shell: bash
+        run: |
+          for f in pub.log create.log analyze.log build.log inno.log; do
+            [ -f "$f" ] || continue
+            msg=$(grep -E " error •|Error|error:|error C|error LNK|FAILED|Exception|not found|Could not|CMake Error" "$f" | head -40 || true)
+            [ -n "$msg" ] || msg=$(tail -n 30 "$f")
+            msg="${msg//'%'/'%25'}"
+            msg="${msg//$'\n'/'%0A'}"
+            echo "::error title=$f::$msg"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs
+          path: |
+            pub.log
+            create.log
+            analyze.log
+            build.log
+            inno.log
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-project
+          path: |
+            windows
+            pubspec.lock
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vinyl-solutions-windows
+          path: |
+            dist/VinylSolutions-Setup.exe
+            dist/VinylSolutions-portable.zip
+            dist/appcast.xml
+          if-no-files-found: warn
+
+      - name: Publicar en GitHub Releases
+        if: env.RELEASE == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for f in dist/VinylSolutions-Setup.exe dist/VinylSolutions-portable.zip dist/appcast.xml; do
+            test -s "$f" || { echo "::error title=Falta archivo::$f"; exit 1; }
+          done
+          gh release create "$TAG" dist/VinylSolutions-Setup.exe dist/VinylSolutions-portable.zip dist/appcast.xml \
+            --title "VinylSolutions $VER" \
+            --notes "Instalador (VinylSolutions-Setup.exe) y versión portable (ZIP). La app instalada se actualiza sola."

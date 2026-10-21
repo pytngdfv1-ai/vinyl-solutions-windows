@@ -1,0 +1,18 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.log
+.idea/
+.vscode/
+# Claves (nunca al repo)
+*.pem
+*.key
+*.p12
+*.jks
+dsa_priv.pem
+ed_priv.key
