@@ -113,6 +113,8 @@ jobs:
           ls "/c/Program Files (x86)" 2>&1 | tee -a inno.log
           test -f "$ISCC" || { echo "::error title=Inno Setup::No se encontró ISCC.exe"; exit 1; }
           mkdir -p dist
+          # Git Bash convierte los argumentos que empiezan con "/" en rutas; se desactiva.
+          export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*"
           "$ISCC" "/DAppVersion=$VER" "/DSourceDir=$(cygpath -w "$PWD/build/windows/x64/runner/Release")" "/DOutputDir=$(cygpath -w "$PWD/dist")" installer/VinylSolutions.iss 2>&1 | tee -a inno.log
           test -s dist/VinylSolutions-Setup.exe || { echo "::error title=Sin instalador::No se creó VinylSolutions-Setup.exe"; exit 1; }
 
