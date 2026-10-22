@@ -1,6 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:pdfx/pdfx.dart';
+import 'package:pdfrx/pdfrx.dart';
 
 import '../data/fetch_bytes.dart';
 import '../models/vinyl.dart';
@@ -171,7 +173,7 @@ class _PdfTab extends StatefulWidget {
 }
 
 class _PdfTabState extends State<_PdfTab> with AutomaticKeepAliveClientMixin {
-  PdfControllerPinch? _ctl;
+  Uint8List? _bytes;
   String? _error;
 
   @override
@@ -187,16 +189,10 @@ class _PdfTabState extends State<_PdfTab> with AutomaticKeepAliveClientMixin {
     try {
       final bytes = await fetchBytes(widget.url);
       if (!mounted) return;
-      setState(() => _ctl = PdfControllerPinch(document: PdfDocument.openData(bytes)));
+      setState(() => _bytes = bytes);
     } catch (e) {
       if (mounted) setState(() => _error = 'No se pudo abrir el PDF: $e');
     }
-  }
-
-  @override
-  void dispose() {
-    _ctl?.dispose();
-    super.dispose();
   }
 
   @override
@@ -210,13 +206,20 @@ class _PdfTabState extends State<_PdfTab> with AutomaticKeepAliveClientMixin {
         ),
       );
     }
-    final c = _ctl;
-    if (c == null) return const Center(child: CircularProgressIndicator());
-    return PdfViewPinch(
-      controller: c,
-      onDocumentError: (e) {
-        if (mounted) setState(() => _error = 'No se pudo abrir el PDF: $e');
-      },
+    final b = _bytes;
+    if (b == null) return const Center(child: CircularProgressIndicator());
+    return PdfViewer.data(
+      b,
+      sourceName: widget.url,
+      params: PdfViewerParams(
+        backgroundColor: Colors.black,
+        errorBannerBuilder: (context, error, stackTrace, documentRef) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text('No se pudo abrir el PDF: $error', textAlign: TextAlign.center),
+          ),
+        ),
+      ),
     );
   }
 }
