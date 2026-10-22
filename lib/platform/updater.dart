@@ -12,7 +12,8 @@ Future<void> initUpdater() async {
   if (!Platform.isWindows || kDebugMode) return;
   try {
     await autoUpdater.setFeedURL(kAppcastUrl);
-    await autoUpdater.checkForUpdates();
+    // En segundo plano: solo muestra ventana si hay una versión nueva (sin errores si aún no hay Release).
+    await autoUpdater.checkForUpdates(inBackground: true);
     await autoUpdater.setScheduledCheckInterval(21600);
   } catch (e) {
     debugPrint('Actualizador no disponible: $e');
