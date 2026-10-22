@@ -76,9 +76,7 @@ class _StageScreenState extends State<StageScreen> {
           builder: (_, ps) => StreamBuilder<Duration>(
             stream: p.positionStream,
             builder: (_, pos) {
-              final dur = p.duration?.inMilliseconds ?? 0;
-              final cur = (pos.data ?? Duration.zero).inMilliseconds;
-              final prog = dur > 0 ? (cur / dur).clamp(0.0, 1.0).toDouble() : 0.0;
+              final prog = _audio.progressAt(pos.data ?? Duration.zero);
               return Turntable(vinyl: v, playing: ps.data ?? false, progress: prog);
             },
           ),
