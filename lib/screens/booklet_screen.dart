@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdfx/pdfx.dart';
@@ -160,7 +162,8 @@ class _PagesState extends State<_Pages> {
   }
 }
 
-/// Un PDF del álbum, mostrado dentro de la app.
+/// Un PDF del álbum, mostrado dentro de la app. Renderiza cada página como
+/// imagen (funciona igual en Windows) y muestra el error real si algo falla.
 class _PdfTab extends StatefulWidget {
   const _PdfTab({required this.url});
 
@@ -171,8 +174,9 @@ class _PdfTab extends StatefulWidget {
 }
 
 class _PdfTabState extends State<_PdfTab> with AutomaticKeepAliveClientMixin {
-  PdfControllerPinch? _ctl;
+  PdfDocument? _doc;
   String? _error;
+  final Map<int, Future<Uint8List>> _pages = {};
 
   @override
   bool get wantKeepAlive => true;
@@ -186,16 +190,41 @@ class _PdfTabState extends State<_PdfTab> with AutomaticKeepAliveClientMixin {
   Future<void> _load() async {
     try {
       final bytes = await fetchBytes(widget.url);
-      if (!mounted) return;
-      setState(() => _ctl = PdfControllerPinch(document: PdfDocument.openData(bytes)));
+      final doc = await PdfDocument.openData(bytes);
+      if (!mounted) {
+        await doc.close();
+        return;
+      }
+      setState(() => _doc = doc);
     } catch (e) {
       if (mounted) setState(() => _error = 'No se pudo abrir el PDF: $e');
     }
   }
 
+  /// Renderiza la página (1..n) a ~1400 px de ancho.
+  Future<Uint8List> _render(int n) {
+    return _pages.putIfAbsent(n, () async {
+      final page = await _doc!.getPage(n);
+      try {
+        const targetW = 1400.0;
+        final h = targetW * page.height / page.width;
+        final img = await page.render(
+          width: targetW,
+          height: h,
+          format: PdfPageImageFormat.png,
+          backgroundColor: '#FFFFFF',
+        );
+        if (img == null) throw Exception('No se pudo dibujar la página $n');
+        return img.bytes;
+      } finally {
+        await page.close();
+      }
+    });
+  }
+
   @override
   void dispose() {
-    _ctl?.dispose();
+    _doc?.close();
     super.dispose();
   }
 
@@ -206,17 +235,41 @@ class _PdfTabState extends State<_PdfTab> with AutomaticKeepAliveClientMixin {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(_error!, textAlign: TextAlign.center),
+          child: SelectableText(_error!, textAlign: TextAlign.center),
         ),
       );
     }
-    final c = _ctl;
-    if (c == null) return const Center(child: CircularProgressIndicator());
-    return PdfViewPinch(
-      controller: c,
-      onDocumentError: (e) {
-        if (mounted) setState(() => _error = 'No se pudo abrir el PDF: $e');
-      },
+    final d = _doc;
+    if (d == null) return const Center(child: CircularProgressIndicator());
+    return InteractiveViewer(
+      minScale: 1,
+      maxScale: 5,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: d.pagesCount,
+        itemBuilder: (_, i) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: FutureBuilder<Uint8List>(
+            future: _render(i + 1),
+            builder: (_, snap) {
+              if (snap.hasError) {
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: SelectableText('Página ${i + 1}: ${snap.error}',
+                      style: const TextStyle(color: Colors.redAccent)),
+                );
+              }
+              if (!snap.hasData) {
+                return const SizedBox(
+                  height: 300,
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              return Image.memory(snap.data!, fit: BoxFit.fitWidth, gaplessPlayback: true);
+            },
+          ),
+        ),
+      ),
     );
   }
 }
