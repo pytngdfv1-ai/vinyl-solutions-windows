@@ -175,6 +175,10 @@ jobs:
             msg="${msg//'%'/'%25'}"
             msg="${msg//$'\n'/'%0A'}"
             echo "::error title=$f::$msg"
+            t=$(tail -n 25 "$f")
+            t="${t//'%'/'%25'}"
+            t="${t//$'\n'/'%0A'}"
+            echo "::error title=$f (final)::$t"
           done
 
       - uses: actions/upload-artifact@v4
