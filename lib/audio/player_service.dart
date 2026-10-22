@@ -13,6 +13,11 @@ import 'koofr_proxy.dart';
 class PlayerService {
   PlayerService._() {
     player.currentIndexStream.listen(_onIndex);
+    // Recuerda la duración de cada tema (el reproductor a veces no la vuelve a
+    // informar al cambiar de tema y el brazo se quedaba en el borde exterior).
+    player.durationStream.listen((d) {
+      if (d != null && d > Duration.zero) _durations[player.currentIndex ?? 0] = d;
+    });
     player.processingStateStream.listen((st) {
       if (st == ProcessingState.completed) _onCompleted();
     });
@@ -23,6 +28,20 @@ class PlayerService {
 
   /// Disco cargado en el reproductor (null = nada).
   final ValueNotifier<Vinyl?> nowPlaying = ValueNotifier<Vinyl?>(null);
+
+  final Map<int, Duration> _durations = {};
+
+  /// Avance (0..1) del tema actual. Si no se conoce la duración, se estima
+  /// para que el brazo siga avanzando.
+  double progressAt(Duration pos) {
+    var dur = player.duration;
+    if (dur == null || dur <= Duration.zero) dur = _durations[player.currentIndex ?? 0];
+    final cur = pos.inMilliseconds;
+    if (dur == null || dur <= Duration.zero) {
+      return (cur / (5 * 60 * 1000)).clamp(0.0, 0.95).toDouble();
+    }
+    return (cur / dur.inMilliseconds).clamp(0.0, 1.0).toDouble();
+  }
 
   String? _loadedId;
   int _lastIndex = 0;
@@ -45,6 +64,7 @@ class PlayerService {
         if (v.trackUrls.first.startsWith('file:')) rethrow;
         await player.setAudioSource(await _proxied(v), initialIndex: index);
       }
+      _durations.clear();
       _loadedId = v.id;
       nowPlaying.value = v;
       unawaited(player.play());
