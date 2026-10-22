@@ -86,18 +86,34 @@ class PlayerService {
     }
   }
 
+  int? _pendingTrack;
+
   /// Cambio manual: el brazo vuelve al reposo, cambia el tema y baja de nuevo.
+  /// Si llega otro cambio mientras tanto, se guarda y se aplica al terminar.
   Future<void> goTrack(int i) async {
     final v = nowPlaying.value;
-    if (v == null || _changing || i < 0 || i >= v.trackUrls.length) return;
+    if (v == null || i < 0 || i >= v.trackUrls.length) return;
+    if (_changing) {
+      _pendingTrack = i;
+      return;
+    }
     _changing = true;
-    await player.pause(); // el brazo se levanta
-    await Future.delayed(const Duration(milliseconds: 900));
-    _lastIndex = i;
-    await player.seek(Duration.zero, index: i);
-    await Future.delayed(const Duration(milliseconds: 300));
-    _changing = false;
+    try {
+      await player.pause(); // el brazo se levanta
+      await Future.delayed(const Duration(milliseconds: 900));
+      _lastIndex = i;
+      await player.seek(Duration.zero, index: i);
+      await Future.delayed(const Duration(milliseconds: 300));
+    } finally {
+      _changing = false; // nunca queda bloqueado si algo falla
+    }
     unawaited(player.play()); // el brazo baja al borde exterior
+    final next = _pendingTrack;
+    _pendingTrack = null;
+    if (next != null && next != i) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      await goTrack(next);
+    }
   }
 
   /// El reproductor pasó solo al siguiente tema: repite la animación.
@@ -111,11 +127,14 @@ class PlayerService {
 
   Future<void> _autoAdvance() async {
     _changing = true;
-    await player.pause();
-    await Future.delayed(const Duration(milliseconds: 900));
-    await player.seek(Duration.zero);
-    await Future.delayed(const Duration(milliseconds: 300));
-    _changing = false;
+    try {
+      await player.pause();
+      await Future.delayed(const Duration(milliseconds: 900));
+      await player.seek(Duration.zero);
+      await Future.delayed(const Duration(milliseconds: 300));
+    } finally {
+      _changing = false;
+    }
     unawaited(player.play());
   }
 

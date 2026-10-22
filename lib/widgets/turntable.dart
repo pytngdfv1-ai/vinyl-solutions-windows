@@ -82,7 +82,14 @@ class _TurntableState extends State<Turntable> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(covariant Turntable old) {
     super.didUpdateWidget(old);
-    if (old.playing != widget.playing) _sync();
+    if (old.playing != widget.playing) {
+      _sync();
+    } else if (widget.playing) {
+      // Mientras suena, el brazo debe estar abajo y el disco girando, aunque
+      // se haya perdido algún cambio de estado (p. ej. al cambiar de tema).
+      if (!_arm.isAnimating && _arm.value < 1) _arm.forward();
+      if (!_spin.isAnimating) _spin.repeat();
+    }
   }
 
   void _sync({bool initial = false}) {
