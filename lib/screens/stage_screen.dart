@@ -64,21 +64,46 @@ class _StageScreenState extends State<StageScreen> {
   // La música NO se detiene al cerrar esta pantalla.
 
   Widget _turntable() {
-    if (!v.hasAudio) return Turntable(vinyl: v, playing: _simPlaying, progress: 0);
+    if (!v.hasAudio) {
+      return Turntable(
+        vinyl: v,
+        playing: _simPlaying,
+        trackCount: v.tracks.length,
+        single: v.single,
+      );
+    }
     final p = _audio.player;
     return ValueListenableBuilder<Vinyl?>(
       valueListenable: _audio.nowPlaying,
       builder: (_, np, __) {
-        if (np?.id != v.id) return Turntable(vinyl: v, playing: false, progress: 0);
+        if (np?.id != v.id) {
+          return Turntable(
+            vinyl: v,
+            playing: false,
+            trackCount: v.tracks.length,
+            single: v.single,
+          );
+        }
         return StreamBuilder<bool>(
           stream: p.playingStream,
           initialData: p.playing,
-          builder: (_, ps) => StreamBuilder<Duration>(
-            stream: p.positionStream,
-            builder: (_, pos) {
-              final prog = _audio.progressAt(pos.data ?? Duration.zero);
-              return Turntable(vinyl: v, playing: ps.data ?? false, progress: prog);
-            },
+          builder: (_, ps) => StreamBuilder<int?>(
+            stream: p.currentIndexStream,
+            initialData: p.currentIndex,
+            builder: (_, ix) => StreamBuilder<Duration>(
+              stream: p.positionStream,
+              builder: (_, pos) {
+                final prog = _audio.progressAt(pos.data ?? Duration.zero);
+                return Turntable(
+                  vinyl: v,
+                  playing: ps.data ?? false,
+                  progress: prog,
+                  trackIndex: ix.data ?? 0,
+                  trackCount: v.tracks.length,
+                  single: v.single,
+                );
+              },
+            ),
           ),
         );
       },
