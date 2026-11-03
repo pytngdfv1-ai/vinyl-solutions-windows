@@ -1,5 +1,5 @@
 name: vinyl_solutions
-description: "A local-first virtual vinyl record library built with Flutter (Windows)."
+description: "Mi Biblioteca: biblioteca virtual de discos (Windows)."
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -18,9 +18,11 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   file_picker: ^8.1.2
   path_provider: ^2.1.4
-  path: ^1.9.0
   pdfx: 2.8.0
+  pdf: ^3.11.1
+  image: ^4.2.0
   cryptography: ^2.7.0
+  path: ^1.9.0
   window_manager: ^0.4.2
   auto_updater: ^1.0.0
 
@@ -31,3 +33,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  shaders:
+    - shaders/vinyl_sheen.frag
+  fonts:
+    - family: Abril
+      fonts:
+        - asset: assets/fonts/AbrilFatface-Regular.ttf

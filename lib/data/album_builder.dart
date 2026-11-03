@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../models/vinyl.dart';
+import 'classifier.dart';
 import 'cover_cache.dart';
 import 'cover_lookup.dart';
 import 'flac_meta.dart';
@@ -76,6 +77,69 @@ class ScanResult {
   }
 }
 
+String _nk(String s) => s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9áéíóúñü]+'), '');
+
+final _discRe = RegExp(r'^(cd|disc|disco|disk|dvd|vol|volume|volumen)\s*[-_.]?\s*\d+\b', caseSensitive: false);
+
+/// Álbumes con una carpeta de más: "Artista/Oktubre/Oktubre/temas" (carpeta repetida)
+/// o "Artista/Álbum/CD1, CD2" (discos). Se dejan como un solo álbum dentro del artista.
+List<AlbumDraft> fixNestedAlbums(List<AlbumDraft> drafts) {
+  final albums = [for (final d in drafts) if (!d.single && d.path.length >= 3) d];
+  bool sameStart(List<String> a, List<String> p) {
+    if (a.length < p.length) return false;
+    for (var i = 0; i < p.length; i++) {
+      if (a[i] != p[i]) return false;
+    }
+    return true;
+  }
+
+  bool nested(AlbumDraft d) {
+    final p = d.path.length;
+    final inner = d.path[p - 1];
+    final wrapper = d.path[p - 2];
+    if (_discRe.hasMatch(inner)) return true;
+    if (_nk(inner).isEmpty || _nk(inner) != _nk(wrapper)) return false;
+    // Carpeta repetida: solo si el artista tiene otros álbumes un nivel más arriba.
+    final parent = d.path.sublist(0, p - 2);
+    return albums.any((e) => !identical(e, d) && e.path.length == p - 1 && sameStart(e.path, parent));
+  }
+
+  final groups = <String, List<AlbumDraft>>{};
+  for (final d in albums) {
+    if (nested(d)) groups.putIfAbsent(d.path.sublist(0, d.path.length - 1).join('/'), () => []).add(d);
+  }
+  if (groups.isEmpty) return drafts;
+
+  final merged = <AlbumDraft, AlbumDraft?>{};
+  groups.forEach((k, list) {
+    list.sort((a, b) => naturalCompare(a.path.last, b.path.last));
+    final first = list.first;
+    final path = first.path.sublist(0, first.path.length - 1);
+    final m = AlbumDraft(
+      key: k,
+      idPrefix: first.idPrefix,
+      source: first.source,
+      path: path,
+      folderArtist: path[path.length - 2],
+      folderAlbum: path.last,
+      trackFiles: [for (final d in list) ...d.trackFiles],
+      trackUrls: [for (final d in list) ...d.trackUrls],
+      folderImageUrl: list.map((d) => d.folderImageUrl).whereType<String>().firstOrNull,
+      bookletImages: [for (final d in list) ...d.bookletImages],
+      pdfs: [for (final d in list) ...d.pdfs],
+      readMeta: first.readMeta,
+    );
+    merged[first] = m;
+    for (final d in list.skip(1)) {
+      merged[d] = null;
+    }
+  });
+  return [
+    for (final d in drafts)
+      if (!merged.containsKey(d)) d else if (merged[d] != null) merged[d]!,
+  ];
+}
+
 /// Resuelve artista, año y portada de cada álbum (4 a la vez).
 Future<ScanResult> buildAlbums(
   List<AlbumDraft> drafts, {
@@ -83,6 +147,7 @@ Future<ScanResult> buildAlbums(
   void Function(String)? onProgress,
   Map<String, Vinyl> reuse = const {},
 }) async {
+  drafts = fixNestedAlbums(drafts);
   final built = List<Vinyl?>.filled(drafts.length, null);
   var next = 0;
 
@@ -93,12 +158,13 @@ Future<ScanResult> buildAlbums(
       final d = drafts[i];
       onProgress?.call(d.folderAlbum);
       final old = reuse[d.id];
-      if (old != null && old.coverUrl != null && old.year > 0 && old.trackUrls.length == d.trackUrls.length) {
-        // Ya estaba en la biblioteca: se conserva portada y datos, se refrescan archivos.
+      if (old != null && (old.coverUrl != null || old.coverLocked || old.year > 0) && old.trackUrls.length == d.trackUrls.length) {
+        // Incremental: ya estaba en la biblioteca, se conservan portada y datos (sin buscar en internet)
+        // y solo se refrescan los archivos.
         built[i] = old.copyWith(
           tracks: [for (final t in d.trackFiles) trackTitle(t, artist: old.artist)],
           trackUrls: d.trackUrls,
-          coverUrl: d.folderImageUrl,
+          coverUrl: old.coverLocked ? old.coverUrl : (d.folderImageUrl ?? old.coverUrl),
           booklet: d.bookletImages,
           pdfs: d.pdfs,
         );
@@ -151,6 +217,7 @@ Future<Vinyl?> _build(AlbumDraft d) async {
       cover = await CoverCache.save(d.key, pic, m?.pictureMime);
     } catch (_) {}
   }
+  String? mbLang;
   var year = yearOf(m?.date);
   if (year == 0 && !d.single) year = yearOf(d.folderAlbum);
 
@@ -166,9 +233,17 @@ Future<Vinyl?> _build(AlbumDraft d) async {
       tracks: tracks,
       trackFirst: d.single,
     );
-    cover ??= hit?.url;
+    if (cover == null && hit != null) cover = await CoverCache.remember(d.key, hit.url);
+    mbLang = hit?.lang;
     if (year == 0) year = hit?.year ?? 0;
   }
+
+  // Clasificación automática: etiqueta del archivo > carpeta de categoría > texto.
+  final lang = Classifier.langFromTag(m?.language) ??
+      Classifier.langFromSource(d.source) ??
+      mbLang ??
+      Classifier.langFromText('$title ${tracks.join(' ')} $artist');
+  final isCover = Classifier.isCover('${d.key} $title ${tracks.join(' ')}');
 
   return Vinyl(
     id: d.id,
@@ -184,5 +259,7 @@ Future<Vinyl?> _build(AlbumDraft d) async {
     single: d.single,
     source: d.source,
     owned: true,
+    lang: lang,
+    cassette: isCover,
   );
 }

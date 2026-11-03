@@ -93,7 +93,7 @@ jobs:
       - name: Compilar Windows
         shell: bash
         run: |
-          flutter build windows --release --build-name="$VER" --build-number="$BUILD_NUMBER" 2>&1 | tee build.log
+          flutter build windows --release --build-name="$VER" --build-number="$BUILD_NUMBER" --dart-define=APP_VERSION="$(tr -d '\r\n' < VERSION)" 2>&1 | tee build.log
           REL="build/windows/x64/runner/Release"
           test -f "$REL/vinyl_solutions.exe" || { echo "::error title=Sin exe::No existe vinyl_solutions.exe"; exit 1; }
           # Runtime de Visual C++ junto a la app (para PCs sin él instalado).
@@ -145,7 +145,7 @@ jobs:
           <?xml version="1.0" encoding="UTF-8"?>
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
             <channel>
-              <title>VinylSolutions</title>
+              <title>Mi Biblioteca</title>
               <item>
                 <title>Versión ${VER}</title>
                 <pubDate>$(date -u +"%a, %d %b %Y %H:%M:%S +0000")</pubDate>
@@ -223,5 +223,5 @@ jobs:
             test -s "$f" || { echo "::error title=Falta archivo::$f"; exit 1; }
           done
           gh release create "$TAG" dist/VinylSolutions-Setup.exe dist/VinylSolutions-portable.zip dist/appcast.xml \
-            --title "VinylSolutions $VER" \
+            --title "Mi Biblioteca $VER" \
             --notes "Instalador (VinylSolutions-Setup.exe) y versión portable (ZIP). La app instalada se actualiza sola."

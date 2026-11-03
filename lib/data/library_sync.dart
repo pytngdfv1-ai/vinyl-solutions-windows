@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'koofr_client.dart';
@@ -33,10 +35,23 @@ class LibrarySync {
       result.albums,
       genre: a.genre.trim().isEmpty ? null : a.genre.trim(),
     );
+    unawaited(store.reclassify());
     final min = LibrarySettings.minTracks;
     return result.albums.isEmpty
         ? 'Conectado, pero no encontré álbumes completos. ${client.diagnostic}\n${result.summary(min)}'
         : result.summary(min);
+  }
+
+  /// Vuelve a leer una cuenta en segundo plano (por ejemplo, tras mover carpetas).
+  static Future<void> refresh(KoofrSettings a, VinylStore store) async {
+    busy.value = 'Actualizando ${a.name}…';
+    try {
+      await syncAccount(a, store, keepIfEmpty: true);
+    } catch (_) {
+      // Se conserva lo guardado.
+    } finally {
+      busy.value = null;
+    }
   }
 
   /// Sincroniza todas las cuentas guardadas (al abrir la app).

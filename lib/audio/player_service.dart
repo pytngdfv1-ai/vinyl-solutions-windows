@@ -13,8 +13,7 @@ import 'koofr_proxy.dart';
 class PlayerService {
   PlayerService._() {
     player.currentIndexStream.listen(_onIndex);
-    // Recuerda la duración de cada tema (el reproductor a veces no la vuelve a
-    // informar al cambiar de tema y el brazo se quedaba en el borde exterior).
+    // Recuerda la duración de cada tema (a veces no se vuelve a informar al cambiar de tema).
     player.durationStream.listen((d) {
       if (d != null && d > Duration.zero) _durations[player.currentIndex ?? 0] = d;
     });
@@ -31,8 +30,7 @@ class PlayerService {
 
   final Map<int, Duration> _durations = {};
 
-  /// Avance (0..1) del tema actual. Si no se conoce la duración, se estima
-  /// para que el brazo siga avanzando.
+  /// Avance (0..1) del tema actual; si no se conoce la duración, se estima para que el brazo avance.
   double progressAt(Duration pos) {
     var dur = player.duration;
     if (dur == null || dur <= Duration.zero) dur = _durations[player.currentIndex ?? 0];
@@ -48,47 +46,56 @@ class PlayerService {
   bool _changing = false;
   bool _loading = false;
 
+  /// Playlist: los temas se encadenan sin la animación de pausa del brazo.
+  bool chain = false;
+
+  /// Se llama antes de cargar un disco (p. ej. para cerrar una sesión de DJ en vivo).
+  static Future<void> Function()? beforeStart;
+
   /// Carga el disco y empieza a sonar. Si ya está cargado, no hace nada.
-  Future<void> start(Vinyl v, {int index = 0}) async {
+  Future<void> start(Vinyl v, {int index = 0, bool chain = false}) async {
     if (_loadedId == v.id || _loading) return;
+    await beforeStart?.call();
     _loading = true;
     try {
-      if (!v.trackUrls.first.startsWith('file:')) await _preflight(v.trackUrls.first);
-      _changing = false;
-      _lastIndex = index;
-      // Windows: las credenciales de Koofr van como cabeceras HTTP directas.
-      // Si el reproductor no logra abrirlas, se usa el servidor local (plan B).
-      try {
-        await player.setAudioSource(_source(v), initialIndex: index);
-      } catch (_) {
-        if (v.trackUrls.first.startsWith('file:')) rethrow;
-        await player.setAudioSource(await _proxied(v), initialIndex: index);
+      // La nube a veces falla un instante ("Source error"): se reintenta hasta 3 veces;
+      // la última, directo con las credenciales (sin el caché local).
+      Object? last;
+      for (var attempt = 0; attempt < 3; attempt++) {
+        try {
+          if (!v.trackUrls.first.startsWith('file:')) await _preflight(v.trackUrls.first);
+          // Windows: intento 0 y 2 con las credenciales como cabeceras HTTP directas;
+          // el intento 1 pasa por un servidor local (127.0.0.1) que añade las credenciales.
+          final children = <AudioSource>[];
+          for (final url in v.trackUrls) {
+            if (url.startsWith('file:')) {
+              children.add(AudioSource.uri(Uri.parse(url)));
+            } else if (attempt == 1) {
+              children.add(AudioSource.uri(await KoofrProxy.instance.wrap(url)));
+            } else {
+              children.add(AudioSource.uri(Uri.parse(url), headers: KoofrSettings.headersFor(url)));
+            }
+          }
+          final source = ConcatenatingAudioSource(children: children);
+          this.chain = chain;
+          _changing = false;
+          _lastIndex = index;
+          await player.setAudioSource(source, initialIndex: index);
+          _durations.clear();
+          _loadedId = v.id;
+          nowPlaying.value = v;
+          unawaited(player.play());
+          return;
+        } catch (e) {
+          last = e;
+          await Future.delayed(Duration(milliseconds: 700 * (attempt + 1)));
+        }
       }
-      _durations.clear();
-      _loadedId = v.id;
-      nowPlaying.value = v;
-      unawaited(player.play());
+      throw last ?? Exception('No se pudo cargar');
     } finally {
       _loading = false;
     }
   }
-
-  ConcatenatingAudioSource _source(Vinyl v) => ConcatenatingAudioSource(
-        children: [
-          for (final url in v.trackUrls)
-            AudioSource.uri(
-              Uri.parse(url),
-              headers: url.startsWith('file:') ? null : KoofrSettings.headersFor(url),
-            ),
-        ],
-      );
-
-  Future<ConcatenatingAudioSource> _proxied(Vinyl v) async => ConcatenatingAudioSource(
-        children: [
-          for (final url in v.trackUrls)
-            AudioSource.uri(url.startsWith('file:') ? Uri.parse(url) : await KoofrProxy.instance.wrap(url)),
-        ],
-      );
 
   /// Comprueba que Koofr responde antes de reproducir (mensaje claro si falla).
   Future<void> _preflight(String url) async {
@@ -106,34 +113,24 @@ class PlayerService {
     }
   }
 
-  int? _pendingTrack;
-
   /// Cambio manual: el brazo vuelve al reposo, cambia el tema y baja de nuevo.
-  /// Si llega otro cambio mientras tanto, se guarda y se aplica al terminar.
   Future<void> goTrack(int i) async {
     final v = nowPlaying.value;
-    if (v == null || i < 0 || i >= v.trackUrls.length) return;
-    if (_changing) {
-      _pendingTrack = i;
+    if (v == null || _changing || i < 0 || i >= v.trackUrls.length) return;
+    if (chain) {
+      _lastIndex = i;
+      await player.seek(Duration.zero, index: i);
+      unawaited(player.play());
       return;
     }
     _changing = true;
-    try {
-      await player.pause(); // el brazo se levanta
-      await Future.delayed(const Duration(milliseconds: 900));
-      _lastIndex = i;
-      await player.seek(Duration.zero, index: i);
-      await Future.delayed(const Duration(milliseconds: 300));
-    } finally {
-      _changing = false; // nunca queda bloqueado si algo falla
-    }
+    await player.pause(); // el brazo se levanta
+    await Future.delayed(const Duration(milliseconds: 900));
+    _lastIndex = i;
+    await player.seek(Duration.zero, index: i);
+    await Future.delayed(const Duration(milliseconds: 300));
+    _changing = false;
     unawaited(player.play()); // el brazo baja al borde exterior
-    final next = _pendingTrack;
-    _pendingTrack = null;
-    if (next != null && next != i) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      await goTrack(next);
-    }
   }
 
   /// El reproductor pasó solo al siguiente tema: repite la animación.
@@ -141,20 +138,17 @@ class PlayerService {
     if (i == null) return;
     final prev = _lastIndex;
     _lastIndex = i;
-    if (_loadedId == null || prev == i || _changing) return;
+    if (_loadedId == null || prev == i || _changing || chain) return;
     _autoAdvance();
   }
 
   Future<void> _autoAdvance() async {
     _changing = true;
-    try {
-      await player.pause();
-      await Future.delayed(const Duration(milliseconds: 900));
-      await player.seek(Duration.zero);
-      await Future.delayed(const Duration(milliseconds: 300));
-    } finally {
-      _changing = false;
-    }
+    await player.pause();
+    await Future.delayed(const Duration(milliseconds: 900));
+    await player.seek(Duration.zero);
+    await Future.delayed(const Duration(milliseconds: 300));
+    _changing = false;
     unawaited(player.play());
   }
 

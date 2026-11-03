@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../data/ui_settings.dart';
+
 import '../audio/player_service.dart';
+import '../data/booklet_lite.dart';
+import '../data/discogs.dart';
 import '../data/library_settings.dart';
 import '../data/vinyl_store.dart';
 import '../models/vinyl.dart';
@@ -28,6 +32,9 @@ Future<void> addDisc(BuildContext context, VinylStore store) async {
 
 Future<void> showLibrarySettings(BuildContext context) async {
   var value = LibrarySettings.minTracks.toDouble();
+  var lite = BookletLite.auto;
+  var beside = BookletLite.beside;
+  final token = TextEditingController(text: Discogs.token);
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => StatefulBuilder(
@@ -52,6 +59,86 @@ Future<void> showLibrarySettings(BuildContext context) async {
               label: '${value.round()}',
               onChanged: (v) => setLocal(() => value = v),
             ),
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Menú principal en 360°'),
+              subtitle: const Text('Apagado = menú clásico de cajones', style: TextStyle(fontSize: 12)),
+              value: UiSettings.homeRing.value,
+              onChanged: (x) {
+                UiSettings.setHome(x);
+                setLocal(() {});
+              },
+            ),
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Dentro de cada biblioteca en 360°'),
+              subtitle: const Text('Apagado = caja de discos clásica', style: TextStyle(fontSize: 12)),
+              value: UiSettings.libRing.value,
+              onChanged: (x) {
+                UiSettings.setLib(x);
+                setLocal(() {});
+              },
+            ),
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Modo ahorro'),
+              subtitle: const Text(
+                'Apaga brillo (shader), sensores, desgaste, sombras dinámicas y animaciones 3D.',
+                style: TextStyle(fontSize: 12),
+              ),
+              value: UiSettings.powerSave.value,
+              onChanged: (x) {
+                UiSettings.setPowerSave(x);
+                setLocal(() {});
+              },
+            ),
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Animaciones al abrir'),
+              subtitle: const Text('El disco sale de la funda / el cassette cae al casetero. Toca para saltar.',
+                  style: TextStyle(fontSize: 12)),
+              value: UiSettings.animations.value,
+              onChanged: (x) {
+                UiSettings.setAnimations(x);
+                setLocal(() {});
+              },
+            ),
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Folletos PDF como imágenes livianas'),
+              subtitle: const Text(
+                'Al importar, convierte cada PDF a WebP (~1600 px). El PDF original no se borra.',
+                style: TextStyle(fontSize: 12),
+              ),
+              value: lite,
+              onChanged: (x) => setLocal(() => lite = x),
+            ),
+            SwitchListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Guardar la liviana junto al PDF'),
+              subtitle: const Text(
+                'Sube las páginas a una carpeta "Libreto liviano" al lado del PDF (nube o equipo).',
+                style: TextStyle(fontSize: 12),
+              ),
+              value: beside,
+              onChanged: (x) => setLocal(() => beside = x),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: token,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Token de Discogs (opcional)',
+                helperText: 'Solo para buscar más portadas. Se guarda cifrado en el equipo.',
+                helperMaxLines: 2,
+              ),
+            ),
           ],
         ),
         actions: [
@@ -67,7 +154,13 @@ Future<void> showLibrarySettings(BuildContext context) async {
       ),
     ),
   );
-  if (ok == true) await LibrarySettings.save(value.round());
+  if (ok == true) {
+    await LibrarySettings.save(value.round());
+    await Discogs.save(token.text);
+    await BookletLite.setAuto(lite);
+    await BookletLite.setBeside(beside);
+  }
+  token.dispose();
 }
 
 Future<void> confirmClearLibrary(BuildContext context, VinylStore store) async {

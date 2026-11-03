@@ -1,7 +1,11 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import '../platform/haptic.dart';
+
+import '../data/ui_settings.dart';
+import 'package:flutter/services.dart';
 
 import '../models/vinyl.dart';
 import 'cover_art.dart';
@@ -31,6 +35,7 @@ class _CrateViewState extends State<CrateView>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctl;
   double _pos = 0;
+  double _lift = 0; // elevación al arrastrar (0..1): sombra más grande y difusa
   double _from = 0;
   double _to = 0;
   int _last = 0;
@@ -59,6 +64,7 @@ class _CrateViewState extends State<CrateView>
     final idx = p.round();
     if (idx != _last) {
       _last = idx;
+      Haptic.selectionClick();
     }
     setState(() => _pos = p);
   }
@@ -69,7 +75,7 @@ class _CrateViewState extends State<CrateView>
     _ctl.forward(from: 0);
   }
 
-  /// Rueda del ratón: un paso de la rueda = un disco.
+  /// Rueda del ratón: un paso = un disco.
   void _onWheel(PointerSignalEvent e) {
     if (e is! PointerScrollEvent || e.scrollDelta.dy == 0) return;
     GestureBinding.instance.pointerSignalResolver.register(e, (_) {
@@ -111,18 +117,18 @@ class _CrateViewState extends State<CrateView>
         }
 
         final current = items[front];
-        return Listener(
-          onPointerSignal: _onWheel,
-          child: MouseRegion(
-          cursor: current.isDivider ? SystemMouseCursors.basic : SystemMouseCursors.click,
-          child: GestureDetector(
+        return Listener(onPointerSignal: _onWheel, child: MouseRegion(cursor: SystemMouseCursors.click, child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () => widget.onPick(current),
-          onSecondaryTap: widget.onLongPress == null ? null : () => widget.onLongPress!(current),
           onLongPress: widget.onLongPress == null ? null : () => widget.onLongPress!(current),
-          onVerticalDragStart: (_) => _ctl.stop(),
+          onVerticalDragStart: (_) {
+            _ctl.stop();
+            setState(() => _lift = 1);
+          },
           onVerticalDragUpdate: (d) => _setPos(_pos + d.delta.dy / 70),
+          onVerticalDragCancel: () => setState(() => _lift = 0),
           onVerticalDragEnd: (d) {
+            setState(() => _lift = 0);
             final v = d.primaryVelocity ?? 0;
             _snapTo((_pos + v / 1400).roundToDouble());
           },
@@ -173,15 +179,14 @@ class _CrateViewState extends State<CrateView>
               ),
             ],
           ),
-          ),
-          ),
-        );
+        )));
       },
     );
   }
 
   Widget _card(Vinyl v, double d, double c, double frontTop, double cx, bool isFront) {
     Widget cover = v.isDivider ? SeparatorCard(label: v.title) : CoverArt(vinyl: v);
+    final div = v.isDivider;
     if (isFront && !v.isDivider) cover = Hero(tag: 'cover-${v.id}', child: cover);
 
     if (d >= 0) {
@@ -194,20 +199,28 @@ class _CrateViewState extends State<CrateView>
         top: top,
         width: size,
         height: size,
-        child: DecoratedBox(
-          decoration: const BoxDecoration(
-            boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 5, offset: Offset(0, -2))],
-          ),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              cover,
-              IgnorePointer(
-                child: ColoredBox(color: Colors.black.withOpacity(shade)),
+        child: div
+            ? SeparatorCard(label: v.title, shade: shade / 0.65)
+            : DecoratedBox(
+                decoration: BoxDecoration(
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.33 + (UiSettings.fx && isFront ? 0.2 * _lift : 0)),
+                      blurRadius: 5 + (UiSettings.fx && isFront ? 18 * _lift : 0),
+                      offset: Offset(0, -2 - (UiSettings.fx && isFront ? 6 * _lift : 0)),
+                    ),
+                  ],
+                ),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    cover,
+                    IgnorePointer(
+                      child: ColoredBox(color: Colors.black.withOpacity(shade)),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
       );
     }
 
