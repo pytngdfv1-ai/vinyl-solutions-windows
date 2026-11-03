@@ -32,8 +32,13 @@ class _LocalScreenState extends State<LocalScreen> {
       }
       setState(() => _status = 'Leyendo carpeta…');
       final scanner = LocalScanner();
+      final reuse = {
+        for (final v in widget.store.items)
+          if ((v.source ?? '').startsWith('local')) v.id: v,
+      };
       final result = await scanner.scan(
         path,
+        reuse: reuse,
         onProgress: (n) {
           if (mounted) setState(() => _status = 'Leyendo $n…');
         },
@@ -42,7 +47,7 @@ class _LocalScreenState extends State<LocalScreen> {
       if (!mounted) return;
       setState(() => _status = result.albums.isEmpty
           ? 'No encontré álbumes completos. ${scanner.diagnostic}\n'
-              '${result.summary(LibrarySettings.minTracks)}'
+              result.summary(LibrarySettings.minTracks)
           : result.summary(LibrarySettings.minTracks));
     } on LocalException catch (e) {
       if (mounted) setState(() => _status = e.message);
@@ -77,6 +82,7 @@ class _LocalScreenState extends State<LocalScreen> {
                 : const Icon(Icons.folder_open),
             label: const Text('Elegir carpeta'),
             onPressed: _busy ? null : _pick,
+          ),
           ),
           const SizedBox(height: 12),
           Text(_status),

@@ -84,7 +84,7 @@ class _BackupScreenState extends State<BackupScreen> {
       final bytes = await BackupService.build(pw, widget.store);
       final path = await FilePicker.platform.saveFile(
         dialogTitle: 'Guardar copia de seguridad',
-        fileName: 'VinylSolutions.vinylbackup',
+        fileName: 'MiBiblioteca.vinylbackup',
       );
       if (path != null) await File(path).writeAsBytes(bytes, flush: true);
       if (mounted) {

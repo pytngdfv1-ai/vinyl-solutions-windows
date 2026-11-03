@@ -8,6 +8,7 @@ import '../models/vinyl.dart';
 import 'koofr_settings.dart';
 import 'library_settings.dart';
 import 'library_sync.dart';
+import 'playlists.dart';
 import 'vinyl_store.dart';
 
 class BackupException implements Exception {
@@ -39,6 +40,12 @@ class BackupService {
         for (final v in store.items)
           if (!v.owned) v.id,
       ],
+      'classes': store.classExport(),
+      'playlists': Playlists.instance.export(),
+      'cassettes': [
+        for (final v in store.items)
+          if (v.cassette) v.id,
+      ],
       'manual': [
         for (final v in store.items)
           if (v.source == null && !v.id.startsWith('dav_')) v.toJson(),
@@ -68,7 +75,7 @@ class BackupService {
       f = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
       if (f['format'] != 'vinylbackup') throw const FormatException();
     } catch (_) {
-      throw const BackupException('El archivo no es una copia de VinylSolutions');
+      throw const BackupException('El archivo no es una copia de Mi Biblioteca');
     }
     List<int> plain;
     try {
@@ -103,8 +110,19 @@ class BackupService {
     final notOwned = (d['notOwned'] as List? ?? const []).cast<String>();
     if (notOwned.isNotEmpty) await store.markNotOwned(notOwned);
 
+    final cassettes = (d['cassettes'] as List? ?? const []).cast<String>();
+    if (cassettes.isNotEmpty) await store.markCassette(cassettes);
+    final pls = d['playlists'] as List?;
+    if (pls != null) await Playlists.instance.import(pls);
+    final classes = d['classes'] as Map<String, dynamic>?;
+    if (classes != null) await store.classImport(classes);
+
     // Sincroniza las nubes en segundo plano y reaplica las marcas.
-    LibrarySync.syncAll(store).then((_) => store.markNotOwned(notOwned));
+    LibrarySync.syncAll(store).then((_) {
+      store.markNotOwned(notOwned);
+      store.markCassette(cassettes);
+      if (classes != null) store.classImport(classes);
+    });
     return '${accounts.length} cuentas restauradas. Sincronizando en segundo plano…';
   }
 }

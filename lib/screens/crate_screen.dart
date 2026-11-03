@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../audio/player_service.dart';
+import '../data/cajon.dart';
+import '../theme.dart';
+import '../data/library_names.dart';
 import '../data/library_order.dart';
 import '../data/library_sync.dart';
 import '../data/vinyl_store.dart';
 import '../models/vinyl.dart';
 import '../widgets/now_playing_chip.dart';
 import '../widgets/crate_view.dart';
+import '../widgets/library_ring.dart';
+import '../data/ui_settings.dart';
 import 'koofr_screen.dart';
 import 'local_screen.dart';
 import 'library_actions.dart';
@@ -17,16 +22,14 @@ class CrateScreen extends StatefulWidget {
   const CrateScreen({
     super.key,
     required this.store,
-    required this.source,
+    required this.cajon,
     required this.title,
-    this.singles = false,
   });
 
   final VinylStore store;
 
-  /// Biblioteca (id de cuenta, 'local' o 'manual'), tipo de baúl y título.
-  final String source;
-  final bool singles;
+  /// Cajón (tipo + idioma) y su título.
+  final Cajon cajon;
   final String title;
 
   @override
@@ -37,6 +40,7 @@ class _CrateScreenState extends State<CrateScreen> {
   _Filter _filter = _Filter.all;
   bool _menuOpen = false;
   String? _genre;
+  String? _lib; // biblioteca de origen (filtro dentro del cajón)
 
   void _open(Vinyl v) {
     if (v.isDivider) return;
@@ -90,6 +94,7 @@ class _CrateScreenState extends State<CrateScreen> {
     var label = widget.title;
     if (_filter == _Filter.owned) label += ' · Mi colección';
     if (_genre != null) label += ' · $_genre';
+    if (_lib != null) label += ' · ${libraryLabel(_lib!)}';
     return label;
   }
 
@@ -135,24 +140,38 @@ class _CrateScreenState extends State<CrateScreen> {
       animation: widget.store,
       builder: (context, _) {
         final all = widget.store.items;
-        final mine = all.where((e) => libraryOf(e) == widget.source).toList();
-        var filtered =
-            _filter == _Filter.owned ? mine.where((e) => e.owned).toList() : mine;
+        final mine = all.where(widget.cajon.matches).toList();
+        final libs = {for (final e in mine) libraryOf(e)}.toList()..sort();
+        if (_lib != null && !libs.contains(_lib)) _lib = null;
+        var filtered = _lib == null ? mine : mine.where((e) => libraryOf(e) == _lib).toList();
+        if (_filter == _Filter.owned) filtered = filtered.where((e) => e.owned).toList();
         if (_genre != null) filtered = filtered.where((e) => e.genre == _genre).toList();
-        final items = arrange(filtered, singles: widget.singles);
+        final items = widget.cajon.kind == CajonKind.unclassified
+            ? [...arrange(filtered), ...arrange(filtered, singles: true)]
+            : arrange(filtered, singles: widget.cajon.kind == CajonKind.singles);
 
         return Scaffold(
           backgroundColor: Colors.black,
           drawer: Drawer(
-            backgroundColor: const Color(0xFF161816),
+            backgroundColor: AppColors.panel,
             child: SafeArea(
               child: ListView(
                 children: [
                   const Padding(
                     padding: EdgeInsets.all(20),
                     child: Text(
-                      'VinylSolutions',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                      'Mi Biblioteca',
+                      style: TextStyle(fontFamily: titleFont, fontSize: 22),
+                    ),
+                  ),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: UiSettings.libRing,
+                    builder: (_, ring, __) => SwitchListTile(
+                      secondary: const Icon(Icons.threed_rotation),
+                      title: const Text('Vista 360°'),
+                      subtitle: const Text('Apagado = caja de discos'),
+                      value: ring,
+                      onChanged: UiSettings.setLib,
                     ),
                   ),
                   ListTile(
@@ -173,6 +192,33 @@ class _CrateScreenState extends State<CrateScreen> {
                       Navigator.of(context).pop();
                     },
                   ),
+                  if (libs.length > 1) ...[
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(20, 10, 20, 2),
+                      child: Text('BIBLIOTECA', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    ),
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.all_inbox_outlined),
+                      title: const Text('Todas'),
+                      trailing: _lib == null ? const Icon(Icons.check) : null,
+                      onTap: () {
+                        setState(() => _lib = null);
+                        Navigator.of(context).pop();
+                      },
+                    ),
+                    for (final l in libs)
+                      ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.folder_outlined),
+                        title: Text(libraryLabel(l)),
+                        trailing: _lib == l ? const Icon(Icons.check) : null,
+                        onTap: () {
+                          setState(() => _lib = l);
+                          Navigator.of(context).pop();
+                        },
+                      ),
+                  ],
                   ..._filterTiles(mine),
                   ListTile(
                     leading: const Icon(Icons.tune),
@@ -214,14 +260,25 @@ class _CrateScreenState extends State<CrateScreen> {
             fit: StackFit.expand,
             children: [
               Positioned.fill(
-                child: CrateView(
-                  key: ValueKey('$_filter|$_genre'),
-                  emptyText: widget.singles
-                      ? 'No hay temas sueltos en esta biblioteca'
-                      : 'No hay álbumes en esta biblioteca',
-                  items: items,
-                  onPick: _open,
-                  onLongPress: _confirmDelete,
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: UiSettings.libRing,
+                  builder: (context, ring, _) => ring
+                      ? LibraryRing(
+                          key: ValueKey('ring|$_filter|$_genre|$_lib'),
+                          emptyText: 'No hay nada en "${widget.title}"',
+                          items: widget.cajon.kind == CajonKind.covers
+                              ? ([...filtered]..sort((a, b) => a.artist.toLowerCase().compareTo(b.artist.toLowerCase())))
+                              : [for (final v in items) if (!v.isDivider) v],
+                          onPick: _open,
+                          onLongPress: _confirmDelete,
+                        )
+                      : CrateView(
+                          key: ValueKey('$_filter|$_genre|$_lib'),
+                          emptyText: 'No hay nada en "${widget.title}"',
+                          items: items,
+                          onPick: _open,
+                          onLongPress: _confirmDelete,
+                        ),
                 ),
               ),
               Positioned(
@@ -256,7 +313,7 @@ class _CrateScreenState extends State<CrateScreen> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              color: Color(0xFF5CFF7A),
+                              color: AppColors.gold,
                               fontWeight: FontWeight.w700,
                             ),
                           ),

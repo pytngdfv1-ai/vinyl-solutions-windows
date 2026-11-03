@@ -1,6 +1,6 @@
-# VinylSolutions para Windows
+# Mi Biblioteca para Windows (antes VinylSolutions)
 
-Biblioteca virtual de discos de vinilo (cajón de madera 3D, tocadisco, Koofr y carpeta local). Mismo código `lib/` que la app de Android.
+Biblioteca virtual de discos y cassettes (menú 360°, tocadisco, cassettes, Cover Studio, playlists, DJ en vivo, Koofr y carpeta local). Mismo código `lib/` que la app de Android (versión 1.04).
 
 ## Descargar e instalar
 
@@ -21,7 +21,7 @@ La app busca versiones nuevas al abrir y cada 6 horas. Si hay una, ofrece instal
 | Espacio | Play / pausa |
 | ← / → | Tema anterior / siguiente |
 | Esc | Volver |
-| Rueda del ratón | Hojear el cajón |
+| Rueda del ratón | Hojear el cajón / girar el anillo |
 | Clic derecho o mantener pulsado | Borrar disco |
 
 ## Publicar una versión nueva (para el dueño del repo)
@@ -63,3 +63,10 @@ Flutter 3.24.x. El destino Windows (`windows/`) se genera con `flutter create --
 flutter pub get
 flutter run -d windows
 ```
+
+## Diferencias con Android
+
+- Sin notificación multimedia ni teclas multimedia (audio_service no soporta Windows).
+- Sin acelerómetro: el brillo del vinilo sigue al ratón.
+- Sin vibración (háptica).
+- AutoDJ no analiza BPM en Windows (el analizador de Android usa MediaCodec); el DJ en vivo, el crossfader y el Auto-mix funcionan.

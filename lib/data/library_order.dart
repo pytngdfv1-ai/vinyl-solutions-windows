@@ -25,7 +25,7 @@ String _sortKey(String artist) {
 }
 
 /// Ordena la biblioteca A→Z por artista (y año), quita duplicados
-/// (se prefiere la copia local) e inserta un separador negro con el
+/// (se prefiere la copia del equipo) e inserta un separador negro con el
 /// nombre del artista siguiente entre un grupo y otro.
 List<Vinyl> arrange(List<Vinyl> all, {bool singles = false}) {
   final best = <String, Vinyl>{};
