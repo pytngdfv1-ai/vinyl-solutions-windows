@@ -8,10 +8,10 @@ Este manual también está dentro de la app, en **Acerca de** (menú **+**).
 
 *Agrega tu música en tres minutos*
 
-Mi Biblioteca lee tus archivos de audio y arma la colección sola. Puedes usar una nube, una carpeta del teléfono o las dos.
+Mi Biblioteca lee tus archivos de audio y arma la colección sola. Puedes usar una nube, una carpeta del equipo o las dos.
 
 1. Toca `+` arriba a la derecha.
-2. Elige **Conectar nube** e ingresa tu correo de Koofr y una contraseña de aplicación. O elige **Carpeta del teléfono**.
+2. Elige **Conectar nube** e ingresa tu correo de Koofr y una contraseña de aplicación. O elige **Carpeta del equipo**.
 3. Indica la carpeta de música y espera el escaneo. La barra fina de arriba muestra el avance.
 4. Los discos aparecen ordenados en cajones. Toca uno y escucha.
 
@@ -65,7 +65,7 @@ Toca el icono `i` en la pantalla del disco para abrir su ficha.
 - **Es un cover:** lo pasa a la estantería de cassettes. Si no tiene portada, la app busca la del tema.
 - **Idioma:** elige Inglés o Español. La app te ofrece mover también la carpeta a la categoría correcta.
 - **Mover a…:** mueve la carpeta completa del disco en la nube, con portada y libreto, y conserva todos tus datos.
-- **Subir a la nube…:** para discos del teléfono. Copia la carpeta a tu nube sin pisar archivos y conserva portada, idioma y marca de cover. La copia del teléfono solo se borra si lo pides, y únicamente cuando terminó la subida.
+- **Subir a la nube…:** para discos del equipo. Copia la carpeta a tu nube sin pisar archivos y conserva portada, idioma y marca de cover. La copia del equipo solo se borra si lo pides, y únicamente cuando terminó la subida.
 - **Buscar portada / PDF:** abre Cover Studio con el artista y el álbum ya escritos.
 
 ## Cover Studio
@@ -78,7 +78,7 @@ Busca carátulas, contraportadas, discos y páginas de libreto en iTunes, Deezer
 2. Abre un álbum. Filtra por tipo y toca las imágenes que quieras. Mantén presionada una para verla grande.
 3. La estrella la deja como portada. `Guardar en la carpeta` la copia junto a la música.
 
-Todo se guarda en la carpeta del disco, en la nube o en el teléfono, con nombres como "Portada" y "Portada (2)". Nunca pisa un archivo existente.
+Todo se guarda en la carpeta del disco, en la nube o en el equipo, con nombres como "Portada" y "Portada (2)". Nunca pisa un archivo existente.
 
 > **Desde el menú.** Cover Studio también está en el menú **+**. Si no abriste un disco, te pregunta en cuál guardar.
 
@@ -176,3 +176,5 @@ Comprueba tu conexión. La app avisa si Koofr no responde y reintenta al abrir e
 ### ¿Mis datos están seguros?
 
 Todo vive en tu dispositivo. Solo se contacta a internet para buscar portadas, letras y libretos, y para hablar con tu nube.
+
+<!-- v1.07: recorrido del cassette y cabezal del deck -->
