@@ -64,7 +64,20 @@ class Turntable extends StatefulWidget {
     this.trackCount = 1,
     this.single = false,
     this.showDisc = true,
+    this.holdArm = false,
+    this.onGrab,
+    this.onRelease,
+    this.onScrub,
   });
+
+  /// El brazo se queda en reposo (levantado) mientras el disco viaja en la animación.
+  final bool holdArm;
+
+  /// El dedo toca / suelta el disco (la música se pausa mientras se sostiene).
+  final VoidCallback? onGrab, onRelease;
+
+  /// Velocidad del giro con el dedo respecto a la del motor (1 = normal, negativo = reversa).
+  final ValueChanged<double>? onScrub;
 
   final Vinyl vinyl;
   final bool playing;
@@ -103,7 +116,7 @@ class _TurntableState extends State<Turntable> with TickerProviderStateMixin {
   );
   late final AnimationController _arm = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 800),
+    duration: const Duration(milliseconds: 1000),
   );
 
   // Giro extra por el dedo / inercia (se suma al giro continuo del motor).
@@ -113,6 +126,9 @@ class _TurntableState extends State<Turntable> with TickerProviderStateMixin {
   Offset? _lastLocal;
   Offset _discCenter = Offset.zero;
   bool _dragging = false;
+  bool _touching = false;
+  int _lastUpdMs = 0;
+  double _rate = 0;
 
   static const double _motorRadPerSec = 2 * math.pi / 1.8;
 
@@ -122,6 +138,7 @@ class _TurntableState extends State<Turntable> with TickerProviderStateMixin {
     _fling.stop();
     _dragging = true;
     _lastLocal = d.localPosition;
+    _lastUpdMs = DateTime.now().millisecondsSinceEpoch;
     if (_spin.isAnimating) _spin.stop(canceled: false); // el dedo manda mientras arrastras
   }
 
@@ -136,10 +153,18 @@ class _TurntableState extends State<Turntable> with TickerProviderStateMixin {
       _fling.value = _extra;
     });
     _lastLocal = d.localPosition;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final dt = math.max(8, now - _lastUpdMs) / 1000.0;
+    _lastUpdMs = now;
+    // Velocidad suavizada del dedo respecto al motor: >0 adelante, <0 reversa.
+    _rate += ((da / dt) / _motorRadPerSec - _rate) * 0.35;
+    widget.onScrub?.call(_rate);
   }
 
   void _dragEnd(DragEndDetails d) {
     _dragging = false;
+    _rate = 0;
+    widget.onScrub?.call(0);
     final p = _lastLocal ?? _discCenter;
     final r = p - _discCenter;
     final v = d.velocity.pixelsPerSecond;
@@ -147,6 +172,14 @@ class _TurntableState extends State<Turntable> with TickerProviderStateMixin {
     final omega = (r.dx * v.dy - r.dy * v.dx) / r2; // rad/s (tangencial / radio)
     _lastLocal = null;
     _coast(omega.clamp(-40.0, 40.0).toDouble(), resumeMotor: widget.playing);
+  }
+
+  void _letGo() {
+    if (!_touching) return;
+    _touching = false;
+    widget.onRelease?.call();
+    // Si sigue sonando, el motor retoma el giro (salvo que haya inercia en curso).
+    if (widget.playing && !_dragging && !_fling.isAnimating && !_spin.isAnimating) _spin.repeat();
   }
 
   /// Inercia con rozamiento; al acabar, si sigue sonando, vuelve el motor.
@@ -172,9 +205,9 @@ class _TurntableState extends State<Turntable> with TickerProviderStateMixin {
   @override
   void didUpdateWidget(covariant Turntable old) {
     super.didUpdateWidget(old);
-    if (old.playing != widget.playing) {
+    if (old.playing != widget.playing || old.holdArm != widget.holdArm) {
       _sync();
-    } else if (widget.playing) {
+    } else if (widget.playing && !widget.holdArm) {
       // Mientras suena, el brazo debe estar abajo y el disco girando, aunque
       // se haya perdido algún cambio de estado (p. ej. al cambiar de tema).
       if (!_arm.isAnimating && _arm.value < 1) _arm.forward();
@@ -184,13 +217,18 @@ class _TurntableState extends State<Turntable> with TickerProviderStateMixin {
 
   void _sync({bool initial = false}) {
     if (widget.playing) {
-      if (initial) _arm.value = 1; // ya sonaba: el brazo aparece apoyado
-      _arm.forward().whenComplete(() {
-        if (!initial && mounted) Haptic.mediumImpact(); // la aguja toca el surco
-      });
-      if (!_dragging) _spin.repeat();
+      if (widget.holdArm) {
+        _arm.value = 0; // brazo en reposo hasta que el disco esté en el plato
+      } else {
+        if (initial) _arm.value = 1; // ya sonaba: el brazo aparece apoyado
+        _arm.forward().whenComplete(() {
+          if (!initial && mounted) Haptic.mediumImpact(); // la aguja toca el surco
+        });
+      }
+      if (!_dragging && !_touching) _spin.repeat();
     } else {
       _arm.reverse();
+      if (_touching || _dragging) return; // el dedo detiene el disco: sin inercia
       if (_spin.isAnimating) {
         _spin.stop(canceled: false);
         _coast(_motorRadPerSec, resumeMotor: false); // el plato sigue girando por inercia y se detiene
@@ -217,8 +255,17 @@ class _TurntableState extends State<Turntable> with TickerProviderStateMixin {
           return Listener(
             // Tocar el disco lo detiene (sin competir con el toque de play/pausa).
             onPointerDown: (e) {
-              if ((e.localPosition - g.center).distance <= g.dr && _fling.isAnimating) _fling.stop();
+              if ((e.localPosition - g.center).distance > g.dr) return;
+              _fling.stop();
+              if (!_touching) {
+                _touching = true;
+                if (_spin.isAnimating) _spin.stop(canceled: false); // tocar el disco lo detiene
+                widget.onGrab?.call();
+                setState(() {});
+              }
             },
+            onPointerUp: (_) => _letGo(),
+            onPointerCancel: (_) => _letGo(),
             child: GestureDetector(
             onPanStart: _dragStart,
             onPanUpdate: _dragUpdate,
@@ -234,7 +281,10 @@ class _TurntableState extends State<Turntable> with TickerProviderStateMixin {
                   top: g.center.dy - g.dr,
                   width: g.dr * 2,
                   height: g.dr * 2,
-                  child: AnimatedBuilder(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {}, // un toque sobre el disco no alterna play/pausa
+                    child: AnimatedBuilder(
                     animation: Listenable.merge([_spin, _fling]),
                     builder: (_, __) => VinylDisc(
                       vinyl: widget.vinyl,
@@ -243,6 +293,7 @@ class _TurntableState extends State<Turntable> with TickerProviderStateMixin {
                       labelRatio: g.labelRatio,
                       tracks: widget.trackCount,
                     ),
+                  ),
                   ),
                 ),
               Positioned.fill(

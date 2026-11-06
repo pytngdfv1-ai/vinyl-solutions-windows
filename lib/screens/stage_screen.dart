@@ -1,6 +1,9 @@
+import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../audio/player_service.dart';
 import '../data/koofr_settings.dart';
@@ -19,7 +22,7 @@ import '../data/classifier.dart';
 import '../data/cover_color.dart';
 import '../data/cover_lookup.dart';
 import '../data/koofr_client.dart';
-import '../widgets/cassette_card.dart';
+import '../widgets/cassette_case.dart';
 import '../widgets/cassette_deck.dart';
 import '../widgets/cover_art.dart';
 import '../data/ui_settings.dart';
@@ -50,11 +53,16 @@ class _StageScreenState extends State<StageScreen> {
   String? _error;
   Color? _bg; // color de la portada (fondo del reproductor)
   int _page = 0; // página del carrusel (0 = carátula)
-  bool _anim = UiSettings.animations.value && UiSettings.fx; // animación de apertura en curso
+  // Animación de apertura en curso: no se repite si este disco ya está sonando (volver desde otra biblioteca).
+  late bool _anim = UiSettings.animations.value &&
+      UiSettings.fx &&
+      _audio.nowPlaying.value?.id != v.id;
   final _visKey = GlobalKey();
   final _coverKey = GlobalKey();
   final _bayKey = GlobalKey(); // ranura del casetero
   bool _ejecting = false;
+  late bool _inserted = !_anim; // cassette dentro del casetero
+  bool _closingForFlip = false; // la tapa se cierra antes de dar vuelta el estuche
 
   Vinyl get v => widget.vinyl;
 
@@ -95,6 +103,10 @@ class _StageScreenState extends State<StageScreen> {
     // Si otro disco está sonando, no lo interrumpas: solo se cambia al elegir un tema.
     if (_audio.nowPlaying.value != null && _audio.player.playing) return;
     await Future.delayed(const Duration(milliseconds: 650));
+    // Cassette: la música no empieza hasta que termina de entrar en el deck.
+    while (mounted && _isTape && !_inserted) {
+      await Future.delayed(const Duration(milliseconds: 120));
+    }
     if (!mounted) return;
     await _ensureLoaded();
   }
@@ -129,14 +141,8 @@ class _StageScreenState extends State<StageScreen> {
         onPrev: _prev,
         onNext: _next,
         bayKey: _bayKey,
-        hideCassette: _anim || _ejecting,
-        onEject: () {
-          if (UiSettings.animations.value && UiSettings.fx) {
-            setState(() => _ejecting = true);
-          } else {
-            Navigator.of(context).pop();
-          }
-        },
+        hideCassette: _anim || _ejecting || !_inserted,
+        onEject: _eject,
       );
     }
     return Turntable(
@@ -147,10 +153,133 @@ class _StageScreenState extends State<StageScreen> {
       trackCount: v.tracks.length,
       single: v.single,
       showDisc: !_anim,
+      holdArm: _anim,
+      onGrab: _discGrab,
+      onRelease: _discRelease,
+      onScrub: _discScrub,
     );
   }
 
+  // --- Disco tocado: la música se detiene mientras lo sostienes; al girarlo con el dedo suena
+  //     más rápido (adelante) o retrocede (reversa) según la velocidad. ---
+  bool _wasPlaying = false;
+  bool _holding = false;
+  double _scrubRate = 0;
+  int _lastScrubMs = 0;
+  double _seekAccumMs = 0;
+
+  void _discGrab() {
+    if (!v.hasAudio || _audio.nowPlaying.value?.id != v.id) return;
+    _holding = true;
+    _wasPlaying = _audio.player.playing;
+    if (_wasPlaying) _audio.player.pause();
+  }
+
+  void _discScrub(double rate) {
+    if (!_holding) return;
+    final p = _audio.player;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final dt = _lastScrubMs == 0 ? 0 : math.min(200, now - _lastScrubMs);
+    _lastScrubMs = now;
+    _scrubRate = rate;
+    if (rate > 0.15) {
+      // Adelante: suena a la velocidad del giro.
+      p.setSpeed(rate.clamp(0.3, 3.0).toDouble());
+      if (!p.playing) p.play();
+    } else if (rate < -0.15) {
+      // Reversa: el audio retrocede según la velocidad (sin sonido, como un rebobinado).
+      if (p.playing) p.pause();
+      _seekAccumMs += rate * dt; // negativo
+      if (_seekAccumMs.abs() >= 120) {
+        final target = p.position + Duration(milliseconds: _seekAccumMs.round());
+        p.seek(target < Duration.zero ? Duration.zero : target);
+        _seekAccumMs = 0;
+      }
+    } else if (p.playing) {
+      p.pause();
+    }
+  }
+
+  void _discRelease() {
+    if (!_holding) return;
+    _holding = false;
+    _lastScrubMs = 0;
+    _seekAccumMs = 0;
+    final p = _audio.player;
+    p.setSpeed(1.0);
+    if (_wasPlaying) p.play();
+  }
+
+  bool get _isTape => v.cassette || v.single;
+
+  /// EJECT: la música se detiene; si el estuche estaba de espaldas gira lento hasta mostrar la
+  /// portada; luego se abre, el cassette entra y la tapa se cierra.
+  Future<void> _eject() async {
+    if (_ejecting || _anim) return;
+    await _audio.stopIf(v.id);
+    if (!mounted) return;
+    if (_flipped) {
+      setState(() => _flipped = false);
+      await Future.delayed(const Duration(milliseconds: 1400));
+      if (!mounted) return;
+    }
+    if (UiSettings.animations.value && UiSettings.fx) {
+      setState(() => _ejecting = true);
+    } else {
+      setState(() => _inserted = false);
+    }
+  }
+
+  /// Da vuelta el estuche: si está abierto, primero se cierra y luego gira para mostrar los temas.
+  Future<void> _flipCase() async {
+    if (_flipBusy) return;
+    _flipBusy = true;
+    try {
+      if (!_flipped && _isTape && _inserted) {
+        setState(() => _closingForFlip = true);
+        await Future.delayed(const Duration(milliseconds: 1050));
+        if (!mounted) return;
+        setState(() {
+          _flipped = true;
+          _closingForFlip = false;
+        });
+      } else {
+        setState(() => _flipped = !_flipped);
+      }
+    } finally {
+      _flipBusy = false;
+    }
+  }
+
+  bool _flipBusy = false;
+
+  /// Toque en la portada: con el cassette fuera, el estuche se abre y el cassette cae en el deck;
+  /// con el cassette dentro, el estuche se cierra y gira para mostrar los temas.
+  Future<void> _tapCover() async {
+    if (_anim || _ejecting) return;
+    if (_isTape && !_inserted) {
+      if (_flipped) {
+        setState(() => _flipped = false);
+        await Future.delayed(const Duration(milliseconds: 1400));
+        if (!mounted) return;
+      }
+      setState(() {
+        if (UiSettings.animations.value && UiSettings.fx) {
+          _anim = true;
+        } else {
+          _inserted = true;
+        }
+      });
+      return;
+    }
+    await _flipCase();
+  }
+
   Future<void> _play() async {
+    if (_isTape && !_inserted) {
+      _tapCover();
+      return;
+    }
     if (!v.hasAudio) {
       setState(() => _simPlaying = true);
       return;
@@ -244,11 +373,17 @@ class _StageScreenState extends State<StageScreen> {
               sourceKey: _coverKey,
               onDone: () {
                 if (!mounted) return;
-                if (_ejecting) {
-                  Navigator.of(context).pop();
-                } else {
-                  setState(() => _anim = false);
-                }
+                setState(() {
+                  if (_ejecting) {
+                    _ejecting = false;
+                    _inserted = false;
+                  } else {
+                    _anim = false;
+                    _inserted = true;
+                  }
+                });
+                // Tras insertar: el estuche vacío se cierra y gira para mostrar los temas.
+                if (_isTape && _inserted && !_flipped) _flipCase();
               },
             ),
           ),
@@ -332,7 +467,7 @@ class _StageScreenState extends State<StageScreen> {
                       child: MouseRegion(
                         cursor: SystemMouseCursors.click,
                         child: GestureDetector(
-                          onTap: () => setState(() => _flipped = !_flipped),
+                          onTap: _tapCover,
                           child: SizedBox(
                             key: _coverKey,
                             width: s,
@@ -348,6 +483,7 @@ class _StageScreenState extends State<StageScreen> {
                                   pages: _bookletPages(),
                                   initial: _page,
                                   onPage: (i) => _page = i,
+                                  caseOpen: _isTape && !_flipped && !_closingForFlip && ((_inserted && !_ejecting) || _anim),
                                 ),
                               ),
                             ),
@@ -357,7 +493,7 @@ class _StageScreenState extends State<StageScreen> {
                     );
                   }
 
-                  // Pantalla ancha: tocadisco a la izquierda, carátula a la derecha.
+                  // Pantalla ancha: tocadisco/deck a la izquierda, carátula a la derecha.
                   if (wide) {
                     return Row(
                       children: [
@@ -558,8 +694,8 @@ class _Info extends StatelessWidget {
 /// pellizca para ampliar. Al tocar, se da vuelta la tapa (lista de temas).
 /// Carátula de frente: los cassettes y temas sueltos se ven como en la biblioteca
 /// (portada completa con relleno de color y las etiquetas de artista y tema).
-Widget _front(Vinyl v) {
-  final base = (v.cassette || v.single) ? CassetteCard(vinyl: v) : CoverArt(vinyl: v);
+Widget _front(Vinyl v, {bool caseOpen = false}) {
+  final base = (v.cassette || v.single) ? CassetteCase(vinyl: v, open: caseOpen) : CoverArt(vinyl: v);
   if (!UiSettings.fx) return base;
   // Desgaste procedural sobre la portada (rayas finas y polvo).
   return Stack(
@@ -581,8 +717,10 @@ class _Carousel extends StatefulWidget {
     required this.pages,
     required this.initial,
     required this.onPage,
+    this.caseOpen = false,
   });
 
+  final bool caseOpen;
   final Vinyl vinyl;
   final List<String> pages;
   final int initial;
@@ -613,7 +751,7 @@ class _CarouselState extends State<_Carousel> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.pages.isEmpty) return _front(widget.vinyl);
+    if (widget.pages.isEmpty) return _front(widget.vinyl, caseOpen: widget.caseOpen);
     const broken = Center(child: Icon(Icons.broken_image_outlined, color: Colors.white38, size: 48));
     return Stack(
       children: [
@@ -625,7 +763,7 @@ class _CarouselState extends State<_Carousel> {
             setState(() => _i = i);
           },
           itemBuilder: (_, i) {
-            if (i == 0) return _front(widget.vinyl);
+            if (i == 0) return _front(widget.vinyl, caseOpen: widget.caseOpen);
             return ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: ColoredBox(
@@ -690,7 +828,7 @@ class _FlipCover extends StatelessWidget {
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0, end: flipped ? 1 : 0),
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 1300),
       curve: Curves.easeInOutCubic,
       builder: (context, v, _) {
         final back = v > 0.5;
@@ -954,6 +1092,28 @@ class DetailSheet extends StatelessWidget {
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => CoverStudioScreen(store: store, target: v)),
                     ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                    label: const Text('Usar mi propia imagen como portada'),
+                    onPressed: () async {
+                      final nav = Navigator.of(context);
+                      final r = await FilePicker.platform.pickFiles(type: FileType.image);
+                      final path = r?.files.single.path;
+                      if (path == null) return;
+                      final dir = Directory('${(await getApplicationDocumentsDirectory()).path}/portadas_propias');
+                      await dir.create(recursive: true);
+                      final ext = path.contains('.') ? path.substring(path.lastIndexOf('.')) : '.jpg';
+                      final safe = v.id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+                      final dest = File('${dir.path}/$safe${DateTime.now().millisecondsSinceEpoch}$ext');
+                      await File(path).copy(dest.path);
+                      await store.setCover(v.id, dest.uri.toString());
+                      if (nav.mounted) nav.pop();
+                    },
                   ),
                 ),
                 if (v.coverUrl != null) ...[
