@@ -33,6 +33,12 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/models3d/technics/
+    - assets/models3d/cassette_player/
+    - assets/models3d/dj/
+    - assets/models3d/melodia/
+    - assets/models3d/crate/
   shaders:
     - shaders/vinyl_sheen.frag
   fonts:

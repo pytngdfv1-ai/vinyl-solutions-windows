@@ -63,7 +63,7 @@ class StudioSave {
   static Future<void> image(VinylStore store, Vinyl v, Uint8List bytes,
       {required String label, required String type, bool asCover = false}) async {
     final ext = extOf(bytes);
-    final base = type == 'front' ? 'Portada' : label;
+    final base = type == 'front' ? 'Portada' : (type == 'back' ? 'Contraportada' : label);
     final saved = await inFolder(v, bytes, base, ext);
     if (asCover) {
       // Copia local para verla sin conexión.

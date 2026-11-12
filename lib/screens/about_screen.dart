@@ -65,6 +65,18 @@ class _AboutScreenState extends State<AboutScreen> {
                 children: [
                   _header(),
                   const SizedBox(height: 18),
+                  const Text(
+                    'Modelos 3D (Sketchfab): '
+                    'Tocadiscos Technics, por Roberto Domínguez (CC-BY 4.0); '
+                    'Melodia reel-to-reel tape recorder, por Museum of Engineering and Technology, Krakow (CC-BY-NC-SA 4.0); '
+                    'Scan of Vinyl records in box crate, por Ellipsoid (CC-BY 4.0); '
+                    'Audio Cassette Tape With Box Kitedit, por kaleidagon (CC-BY 4.0), sketchfab.com/kaleidagon; '
+                    'DJ Mixer Lowpoly, por gusnk (CC-BY 4.0); '
+                    'Cassette Player, por Console Art Cybernetic (licencia Free Standard de Sketchfab, sin redistribución); '
+                    'Cassette audio (k7), por Amigos3D (CC-BY 4.0); Cassette Case, por Geug (CC-BY 4.0); Vinyl Record, por Cryotizer (CC-BY 4.0).',
+                    style: TextStyle(color: _muted, fontSize: 11),
+                  ),
+                  const SizedBox(height: 18),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,

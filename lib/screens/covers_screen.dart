@@ -5,7 +5,7 @@ import '../theme.dart';
 import '../data/vinyl_store.dart';
 import '../models/vinyl.dart';
 import '../widgets/now_playing_chip.dart';
-import 'library_actions.dart' show openStage;
+import 'library_actions.dart' show openStage, openPlaying;
 
 String _name(Vinyl v) => v.single && v.tracks.isNotEmpty ? v.tracks.first : v.title;
 
@@ -79,7 +79,7 @@ class CoversScreen extends StatelessWidget {
                 children: [
                   Flexible(
                     child: NowPlayingChip(
-                      onOpen: (v) => openStage(
+                      onOpen: (v) => openPlaying(
                         context,
                         store,
                         store.items.firstWhere((e) => e.id == v.id, orElse: () => v),

@@ -1,3 +1,5 @@
+import '../data/play_mode.dart';
+
 class Vinyl {
   const Vinyl({
     required this.id,
@@ -58,6 +60,9 @@ class Vinyl {
   final bool coverLocked;
 
   /// Separador generado entre artistas (no es un disco real).
+  /// Se muestra y reproduce como cassette (según el reproductor elegido).
+  bool get isTape => ViewMode.tapeOf(id, cassette, single);
+
   bool get isDivider => id.startsWith('sep_');
 
   bool get hasBooklet => booklet.isNotEmpty || pdfs.isNotEmpty;

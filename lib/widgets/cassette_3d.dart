@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../data/cover_color.dart';
+import '../data/objects3d.dart';
 import '../models/vinyl.dart';
 import 'cassette_card.dart';
 import 'cover_art.dart';
@@ -32,6 +33,7 @@ class Cassette3D extends StatefulWidget {
 
 class _Cassette3DState extends State<Cassette3D> {
   late String? _back = backCoverOf(widget.vinyl);
+  String? get _gen => Objects3D.pathOf(widget.vinyl.id, 'back_tape');
   late Future<List<Color?>> _colors =
       Future.wait([CoverColor.of(widget.vinyl.coverUrl), CoverColor.of(_back)]);
 
@@ -82,7 +84,7 @@ class _Cassette3DState extends State<Cassette3D> {
                   clipBehavior: Clip.none,
                   children: [
                     face(ww, hh, Matrix4.identity()..translate(0.0, 0.0, t / 2)..rotateY(math.pi),
-                        _BackFace(vinyl: v, backUrl: _back, base: b)),
+                        _BackFace(vinyl: v, backUrl: _back, genUrl: _gen, base: b)),
                     face(t, hh, Matrix4.identity()..translate(-ww / 2, 0.0, 0.0)..rotateY(math.pi / 2),
                         _Spine(from: b, to: a, text: '', quarter: 1)), // el nombre solo en un lado (el izquierdo de la pantalla)
                     face(t, hh, Matrix4.identity()..translate(ww / 2, 0.0, 0.0)..rotateY(-math.pi / 2),
@@ -139,8 +141,9 @@ class _Spine extends StatelessWidget {
 }
 
 class _BackFace extends StatelessWidget {
-  const _BackFace({required this.vinyl, required this.backUrl, required this.base});
+  const _BackFace({required this.vinyl, required this.backUrl, this.genUrl, required this.base});
   final Vinyl vinyl;
+  final String? genUrl;
   final String? backUrl;
   final Color base;
 
@@ -165,7 +168,9 @@ class _BackFace extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(6.5),
-        child: backUrl != null
+        child: genUrl != null
+            ? buildCoverImage(genUrl!, cacheWidth: 500, fallback: ColoredBox(color: dark))
+            : backUrl != null
             ? Column(
                 children: [
                   fill(true),

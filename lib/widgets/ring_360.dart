@@ -17,6 +17,9 @@ class Ring360 extends StatefulWidget {
     this.caption,
     this.aspect = 1.0,
     this.initial = 0,
+    this.gap = 1.0,
+    this.scale = 1.0,
+    this.frontAwareBuilder,
   });
 
   final int count;
@@ -30,6 +33,13 @@ class Ring360 extends StatefulWidget {
   /// Ancho / alto de cada tarjeta.
   final double aspect;
   final int initial;
+
+  /// Separación horizontal entre tarjetas (1 = normal) y tamaño de cada una (1 = normal).
+  final double gap;
+  final double scale;
+
+  /// Como [itemBuilder], pero también dice si la tarjeta está al frente (si se da, reemplaza a [itemBuilder]).
+  final Widget Function(BuildContext context, int index, bool isFront)? frontAwareBuilder;
 
   @override
   State<Ring360> createState() => _Ring360State();
@@ -118,7 +128,7 @@ class _Ring360State extends State<Ring360> with SingleTickerProviderStateMixin {
       builder: (context, cons) {
         final w = cons.maxWidth;
         final h = cons.maxHeight;
-        final ch = math.min(h * 0.58, w * 0.52 / widget.aspect);
+        final ch = math.min(h * 0.58, w * 0.52 / widget.aspect) * widget.scale;
         final cw = ch * widget.aspect;
         final cx = w / 2;
         final cy = h * 0.44;
@@ -145,7 +155,7 @@ class _Ring360State extends State<Ring360> with SingleTickerProviderStateMixin {
         for (final e in placed) {
           final t = (e.th.abs() / 1.2).clamp(0.0, 1.0).toDouble();
           final s = 1 - 0.22 * t * t;
-          final x = k * e.th;
+          final x = k * e.th * widget.gap;
           final shade = (t * t * 0.7).clamp(0.0, 0.7).toDouble();
           cards.add(Positioned(
             left: cx + x - cw / 2,
@@ -167,7 +177,9 @@ class _Ring360State extends State<Ring360> with SingleTickerProviderStateMixin {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    widget.itemBuilder(context, e.i),
+                    widget.frontAwareBuilder != null
+                        ? widget.frontAwareBuilder!(context, e.i, e.i == front)
+                        : widget.itemBuilder(context, e.i),
                     IgnorePointer(
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(8),

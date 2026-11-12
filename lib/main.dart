@@ -1,3 +1,5 @@
+import 'data/objects3d.dart';
+import 'data/equalizer.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:window_manager/window_manager.dart';
@@ -12,8 +14,8 @@ import 'data/koofr_settings.dart';
 import 'data/library_settings.dart';
 import 'data/library_sync.dart';
 import 'data/playlists.dart';
-import 'data/ui_settings.dart';
 import 'data/tilt.dart';
+import 'data/ui_settings.dart';
 import 'data/vinyl_store.dart';
 import 'platform/desktop_shell.dart';
 import 'platform/updater.dart';
@@ -43,9 +45,11 @@ Future<void> main() async {
   await LibrarySettings.load();
   await ChestNames.load();
   await UiSettings.load();
+  await Eq.load();
   await Discogs.load();
   await BookletLite.load();
   await KoofrAccounts.load();
+  await Objects3D.load();
   await Playlists.instance.load();
   try {
     await AppAudio.init();
@@ -53,7 +57,7 @@ Future<void> main() async {
   PlayerService.beforeStart = DjSession.stop;
   runApp(VinylApp(store: store));
   // Sincroniza las nubes al abrir (en segundo plano).
-  LibrarySync.syncAll(store);
+  LibrarySync.syncAll(store).whenComplete(() => Objects3D.sync(store.items));
   // Busca actualizaciones en segundo plano.
   initUpdater();
 }

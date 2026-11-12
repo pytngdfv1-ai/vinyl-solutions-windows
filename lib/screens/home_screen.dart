@@ -5,6 +5,10 @@ import '../data/cajon.dart';
 import '../data/library_sync.dart';
 import '../data/vinyl_store.dart';
 import 'cover_studio_screen.dart';
+import 'equalizer_screen.dart';
+import 'mode_screen.dart';
+import '../data/play_mode.dart';
+import '../widgets/menu_icons.dart';
 import 'pending_screen.dart';
 import 'new_folder_dialog.dart';
 import '../data/ui_settings.dart';
@@ -74,12 +78,40 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() {});
   }
 
-  /// Menú principal en anillo 360°: cada biblioteca es una tarjeta que gira alrededor de ti.
+  /// Menú principal en anillo 360°: solo iconos 3D.
   Widget _ring(List<Cajon> cajones, List<Vinyl> all) {
-    final lists = [
-      for (final c in cajones)
-        all.where(c.matches).toList()..sort((a, b) => a.artist.toLowerCase().compareTo(b.artist.toLowerCase())),
+    const items = <(String, String, MenuIconKind)>[
+      ('Tocadiscos', 'Álbumes y sueltos en disco', MenuIconKind.turntable),
+      ('Deck de cassettes', 'Álbumes y sueltos en cassette', MenuIconKind.deck),
+      ('Bandejas DJ', 'Mezcla tus playlists', MenuIconKind.dj),
+      ('Cinta abierta', 'Reproduce todo', MenuIconKind.reel),
+      ('Buscador de portadas', 'Cover Studio', MenuIconKind.covers),
+      ('Buscador de temas y álbumes', 'Busca en tu biblioteca', MenuIconKind.search),
+      ('Ajustes', 'Opciones de la app', MenuIconKind.gear),
+      ('Ecualizador', 'Graves, medios y agudos', MenuIconKind.equalizer),
     ];
+    void tool(int i) {
+      switch (i) {
+        case 0:
+          _push(ModeScreen(store: widget.store, mode: PlayMode.disc));
+        case 1:
+          _push(ModeScreen(store: widget.store, mode: PlayMode.cassette));
+        case 2:
+          _push(const PlaylistsScreen());
+        case 3:
+          _push(ModeScreen(store: widget.store, mode: PlayMode.reel));
+        case 4:
+          _push(CoverStudioScreen(store: widget.store));
+        case 5:
+          _push(SearchScreen(store: widget.store));
+        case 6:
+          showLibrarySettings(context, store: widget.store);
+        default:
+          _push(const EqualizerScreen());
+      }
+    }
+
+    const models3d = ['technics', 'cassette_player', 'dj', 'melodia', 'crate'];
     return Container(
       decoration: const BoxDecoration(
         gradient: RadialGradient(
@@ -89,12 +121,19 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       child: Ring360(
-        count: cajones.length,
-        aspect: 0.86,
-        itemBuilder: (_, i) => _HomeCard(label: cajones[i].name, covers: lists[i]),
-        onFront: (i) => _openCajon(cajones[i]),
-        onLongPressFront: (i) => _rename(cajones[i]),
-        caption: (i) => (cajones[i].name, '${lists[i].length} · mantén pulsado para renombrar'),
+        count: items.length,
+        aspect: 0.9,
+        gap: 1.7,
+        scale: 0.92,
+        itemBuilder: (_, i) => MenuIconCard(kind: items[i].$3, label: items[i].$1),
+        frontAwareBuilder: (_, i, isFront) => MenuIconCard(
+          kind: items[i].$3,
+          label: items[i].$1,
+          model: i < models3d.length ? models3d[i] : null,
+          front: isFront,
+        ),
+        onFront: tool,
+        caption: (i) => (items[i].$1, items[i].$2),
       ),
     );
   }
@@ -162,12 +201,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
                     case 'pending':
                       _push(PendingScreen(store: widget.store));
+                    case 'eq':
+                      _push(const EqualizerScreen());
                     case 'studio':
                       _push(CoverStudioScreen(store: widget.store));
                     case 'backup':
                       _push(BackupScreen(store: widget.store));
                     case 'settings':
-                      showLibrarySettings(context);
+                      showLibrarySettings(context, store: widget.store);
                     case 'clear':
                       confirmClearLibrary(context, widget.store);
                   }
@@ -182,6 +223,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   PopupMenuItem(value: 'pending', child: Text('Pendientes (sin portada o PDF)')),
                   PopupMenuItem(value: 'studio', child: Text('Cover Studio (portadas y PDF)')),
                   PopupMenuDivider(),
+                  PopupMenuItem(value: 'eq', child: Text('Ecualizador')),
                   PopupMenuItem(value: 'backup', child: Text('Copia de seguridad')),
                   PopupMenuItem(value: 'settings', child: Text('Ajustes de biblioteca')),
                   PopupMenuItem(value: 'about', child: Text('Acerca de')),
@@ -190,7 +232,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          body: cajones.isEmpty
+          body: cajones.isEmpty && !UiSettings.homeRing.value
               ? const Center(
                   child: Padding(
                     padding: EdgeInsets.all(32),
@@ -243,7 +285,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           Flexible(
                             child: NowPlayingChip(
-                              onOpen: (v) => openStage(
+                              onOpen: (v) => openPlaying(
                                 context,
                                 widget.store,
                                 widget.store.items.firstWhere((e) => e.id == v.id, orElse: () => v),
@@ -562,8 +604,8 @@ class _CabinetTile extends StatelessWidget {
 
 
 /// Tarjeta de una biblioteca en el anillo: cuatro portadas y el nombre.
-class _HomeCard extends StatelessWidget {
-  const _HomeCard({required this.label, required this.covers});
+class HomeCard extends StatelessWidget {
+  const HomeCard({required this.label, required this.covers});
 
   final String label;
   final List<Vinyl> covers;
@@ -576,7 +618,7 @@ class _HomeCard extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(3),
             child: i < show.length
-                ? (show[i].cassette || show[i].single
+                ? (show[i].isTape
                     ? CassetteCard(vinyl: show[i])
                     : ClipRRect(borderRadius: BorderRadius.circular(4), child: CoverArt(vinyl: show[i], radius: 0)))
                 : const SizedBox.shrink(),

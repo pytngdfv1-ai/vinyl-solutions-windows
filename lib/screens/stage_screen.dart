@@ -62,7 +62,6 @@ class _StageScreenState extends State<StageScreen> {
   final _bayKey = GlobalKey(); // ranura del casetero
   bool _ejecting = false;
   late bool _inserted = !_anim; // cassette dentro del casetero
-  bool _closingForFlip = false; // la tapa se cierra antes de dar vuelta el estuche
 
   Vinyl get v => widget.vinyl;
 
@@ -102,12 +101,20 @@ class _StageScreenState extends State<StageScreen> {
     if (_audio.nowPlaying.value?.id == v.id) return;
     // Si otro disco está sonando, no lo interrumpas: solo se cambia al elegir un tema.
     if (_audio.nowPlaying.value != null && _audio.player.playing) return;
-    await Future.delayed(const Duration(milliseconds: 650));
-    // Cassette: la música no empieza hasta que termina de entrar en el deck.
-    while (mounted && _isTape && !_inserted) {
-      await Future.delayed(const Duration(milliseconds: 120));
+    // La música empieza cuando el disco/cassette ya está en su sitio (cassette: 2 s después de entrar).
+    while (mounted && (_anim || _ejecting)) {
+      await Future.delayed(const Duration(milliseconds: 100));
     }
+    await Future.delayed(Duration(milliseconds: _isTape ? 2000 : 650));
     if (!mounted) return;
+    await _ensureLoaded();
+  }
+
+  /// Tras volver a insertar un cassette: la música arranca 2 s después de que entre en el deck.
+  Future<void> _autoPlayLater() async {
+    await Future.delayed(const Duration(milliseconds: 2000));
+    if (!mounted || !_inserted || _ejecting || _anim) return;
+    if (_audio.nowPlaying.value?.id == v.id) return;
     await _ensureLoaded();
   }
 
@@ -127,7 +134,7 @@ class _StageScreenState extends State<StageScreen> {
   /// Tornamesa para discos; casetero para los covers.
   Widget _vis({required bool playing, double progress = 0, int trackIndex = 0}) {
     // Covers y temas sueltos se reproducen en el casetero.
-    if (v.cassette || v.single) {
+    if (v.isTape) {
       final i = trackIndex.clamp(0, math.max(0, v.tracks.length - 1)).toInt();
       final t = v.tracks.isEmpty ? v.title : v.tracks[i];
       return CassetteDeck(
@@ -210,7 +217,7 @@ class _StageScreenState extends State<StageScreen> {
     if (_wasPlaying) p.play();
   }
 
-  bool get _isTape => v.cassette || v.single;
+  bool get _isTape => v.isTape;
 
   /// EJECT: la música se detiene; si el estuche estaba de espaldas gira lento hasta mostrar la
   /// portada; luego se abre, el cassette entra y la tapa se cierra.
@@ -230,28 +237,7 @@ class _StageScreenState extends State<StageScreen> {
     }
   }
 
-  /// Da vuelta el estuche: si está abierto, primero se cierra y luego gira para mostrar los temas.
-  Future<void> _flipCase() async {
-    if (_flipBusy) return;
-    _flipBusy = true;
-    try {
-      if (!_flipped && _isTape && _inserted) {
-        setState(() => _closingForFlip = true);
-        await Future.delayed(const Duration(milliseconds: 1050));
-        if (!mounted) return;
-        setState(() {
-          _flipped = true;
-          _closingForFlip = false;
-        });
-      } else {
-        setState(() => _flipped = !_flipped);
-      }
-    } finally {
-      _flipBusy = false;
-    }
-  }
-
-  bool _flipBusy = false;
+  bool _reinsert = false; // inserción por toque (no la inicial): arranca la música sola
 
   /// Toque en la portada: con el cassette fuera, el estuche se abre y el cassette cae en el deck;
   /// con el cassette dentro, el estuche se cierra y gira para mostrar los temas.
@@ -264,6 +250,7 @@ class _StageScreenState extends State<StageScreen> {
         if (!mounted) return;
       }
       setState(() {
+        _reinsert = true;
         if (UiSettings.animations.value && UiSettings.fx) {
           _anim = true;
         } else {
@@ -272,7 +259,7 @@ class _StageScreenState extends State<StageScreen> {
       });
       return;
     }
-    await _flipCase();
+    setState(() => _flipped = !_flipped);
   }
 
   Future<void> _play() async {
@@ -369,7 +356,7 @@ class _StageScreenState extends State<StageScreen> {
               key: ValueKey(_ejecting),
               vinyl: v,
               reverse: _ejecting,
-              targetKey: (v.cassette || v.single) ? _bayKey : _visKey,
+              targetKey: (v.isTape) ? _bayKey : _visKey,
               sourceKey: _coverKey,
               onDone: () {
                 if (!mounted) return;
@@ -382,8 +369,10 @@ class _StageScreenState extends State<StageScreen> {
                     _inserted = true;
                   }
                 });
-                // Tras insertar: el estuche vacío se cierra y gira para mostrar los temas.
-                if (_isTape && _inserted && !_flipped) _flipCase();
+                if (_reinsert && _isTape && _inserted) {
+                  _reinsert = false;
+                  _autoPlayLater();
+                }
               },
             ),
           ),
@@ -483,7 +472,7 @@ class _StageScreenState extends State<StageScreen> {
                                   pages: _bookletPages(),
                                   initial: _page,
                                   onPage: (i) => _page = i,
-                                  caseOpen: _isTape && !_flipped && !_closingForFlip && ((_inserted && !_ejecting) || _anim),
+                                  caseOpen: false,
                                 ),
                               ),
                             ),
@@ -695,7 +684,7 @@ class _Info extends StatelessWidget {
 /// Carátula de frente: los cassettes y temas sueltos se ven como en la biblioteca
 /// (portada completa con relleno de color y las etiquetas de artista y tema).
 Widget _front(Vinyl v, {bool caseOpen = false}) {
-  final base = (v.cassette || v.single) ? CassetteCase(vinyl: v, open: caseOpen) : CoverArt(vinyl: v);
+  final base = (v.isTape) ? CassetteCase(vinyl: v, open: caseOpen) : CoverArt(vinyl: v);
   if (!UiSettings.fx) return base;
   // Desgaste procedural sobre la portada (rayas finas y polvo).
   return Stack(
@@ -841,7 +830,14 @@ class _FlipCover extends StatelessWidget {
               ? Transform(
                   alignment: Alignment.center,
                   transform: Matrix4.rotationY(math.pi),
-                  child: _Back(vinyl: vinyl, onTrack: onTrack),
+                  child: (vinyl.isTape)
+                      ? Center(
+                          child: AspectRatio(
+                            aspectRatio: 0.63, // contratapa rectangular, como el estuche
+                            child: _Back(vinyl: vinyl, onTrack: onTrack),
+                          ),
+                        )
+                      : _Back(vinyl: vinyl, onTrack: onTrack),
                 )
               : front,
         );
