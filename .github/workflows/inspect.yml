@@ -1,5 +1,7 @@
 name: Inspect
-on: workflow_dispatch
+on:
+  push:
+    branches: [tmp/inspect-plugin]
 jobs:
   i:
     runs-on: ubuntu-latest
