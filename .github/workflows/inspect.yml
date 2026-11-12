@@ -1,0 +1,22 @@
+name: Inspect
+on: workflow_dispatch
+jobs:
+  i:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: "3.24.x", channel: stable }
+      - shell: bash
+        run: |
+          flutter pub get >/dev/null 2>&1 || true
+          D=$(grep -A3 '"just_audio_media_kit"' .dart_tool/package_config.json | grep rootUri | sed 's/.*file:\/\///;s/".*//')
+          echo "dir=$D"
+          ls "$D/lib" "$D/lib/src" 2>/dev/null | tee ls.txt
+          M=$(grep -rl "class MediaKitPlayer" "$D/lib" | head -1)
+          echo "file=$M"
+          for f in "$M" "$D/lib/just_audio_media_kit.dart"; do
+            t=$(grep -n -E "class |Player|late |final |setProperty|NativePlayer|_players|init\(|androidEqualizer|AudioPipeline|import|export|Future<.*>\s+\w+\(" "$f" | head -90)
+            t="${t//'%'/'%25'}"; t="${t//$'\n'/'%0A'}"
+            echo "::notice title=$(basename $f)::$t"
+          done
