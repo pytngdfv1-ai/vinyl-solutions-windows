@@ -22,10 +22,48 @@ class EqParams {
 }
 
 /// Ecualizador de 5 bandas (60 Hz, 250 Hz, 1 kHz, 4 kHz, 16 kHz).
-/// Windows: la interfaz, los presets y el guardado funcionan; el motor de audio
-/// (just_audio_media_kit) no deja enganchar filtros, así que [effectActive] es falso.
+/// Windows: se aplica como filtro de audio de mpv (`af`) sobre los reproductores de
+/// just_audio_media_kit. Necesita el parche del CI que expone `MediaKitPlayer.player`;
+/// sin él [effectActive] queda en falso y solo se guardan los ajustes.
 class Eq {
-  static const bool effectActive = false;
+  static bool effectActive = false;
+
+  static final List<dynamic> _targets = [];
+
+  /// Lo llama el hook de la plataforma de audio cada vez que se crea un reproductor.
+  static void attach(Object platformPlayer) {
+    try {
+      final dynamic d = platformPlayer;
+      final dynamic native = d.player.platform; // NativePlayer de media_kit
+      native.setProperty; // falla (NoSuchMethodError) si no es NativePlayer
+      _targets.add(native);
+      effectActive = true;
+      unawaited(_push());
+    } catch (_) {}
+  }
+
+  static String _filter() {
+    if (!enabled.value) return '';
+    final pr = params!;
+    final parts = <String>[];
+    for (var i = 0; i < pr.bands.length; i++) {
+      final g = i < gains.length ? gains[i] : 0.0;
+      if (g.abs() < 0.05) continue;
+      parts.add('equalizer=f=${pr.bands[i].centerFrequency.round()}:t=o:w=1.5:g=${g.toStringAsFixed(1)}');
+    }
+    return parts.isEmpty ? '' : 'lavfi=[${parts.join(',')}]';
+  }
+
+  static Future<void> _push() async {
+    final af = _filter();
+    for (final t in List.of(_targets)) {
+      try {
+        await t.setProperty('af', af);
+      } catch (_) {
+        _targets.remove(t); // reproductor liberado
+      }
+    }
+  }
 
   static final ValueNotifier<bool> enabled = ValueNotifier<bool>(false);
 
@@ -73,11 +111,13 @@ class Eq {
       final g = i < gains.length ? gains[i] : 0.0;
       await pr.bands[i].setGain(g.clamp(pr.minDecibels, pr.maxDecibels).toDouble());
     }
+    await _push();
     return true;
   }
 
   static Future<void> setEnabled(bool v) async {
     enabled.value = v;
+    await _push();
     await _save();
   }
 
@@ -88,9 +128,8 @@ class Eq {
       gains.add(0);
     }
     gains[i] = db;
-    try {
-      await pr.bands[i].setGain(db);
-    } catch (_) {}
+    await pr.bands[i].setGain(db);
+    await _push();
   }
 
   static Future<void> commit() => _save();

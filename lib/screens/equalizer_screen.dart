@@ -49,7 +49,7 @@ class _EqualizerScreenState extends State<EqualizerScreen> {
                       const Padding(
                         padding: EdgeInsets.only(bottom: 8),
                         child: Text(
-                          'En Windows los ajustes se guardan, pero aún no modifican el sonido.',
+                          'Reproduce algo para activar el ecualizador. Si no se nota, el motor de audio no admite el filtro.',
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.amberAccent, fontSize: 12),
                         ),
