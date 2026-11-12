@@ -60,6 +60,26 @@ jobs:
         shell: bash
         run: flutter pub get 2>&1 | tee pub.log
 
+      - name: Parche del reproductor (ecualizador)
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, re, urllib.parse, pathlib, sys
+          cfg = json.load(open('.dart_tool/package_config.json'))
+          pkg = next(p for p in cfg['packages'] if p['name'] == 'just_audio_media_kit')
+          root = urllib.parse.unquote(pkg['rootUri'])
+          root = root[8:] if root.startswith('file:///') else root[7:] if root.startswith('file://') else root
+          f = pathlib.Path(root) / 'lib' / 'mediakit_player.dart'
+          s = f.read_text(encoding='utf-8')
+          if 'Player get player' not in s:
+              s, n = re.subn(r'(late final Player _player;)', r'\1\n  Player get player => _player;', s, count=1)
+              if n == 0:
+                  print('::warning title=Parche del ecualizador::no se encontró _player; el ecualizador no tendrá efecto')
+                  sys.exit(0)
+              f.write_text(s, encoding='utf-8')
+          print('Parche aplicado en', f)
+          PY
+
       - name: Generar destino Windows (si falta)
         shell: bash
         run: |

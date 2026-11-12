@@ -69,5 +69,5 @@ flutter run -d windows
 - Sin notificación multimedia ni teclas multimedia (audio_service no soporta Windows).
 - Sin acelerómetro: el brillo del vinilo sigue al ratón.
 - Sin vibración (háptica).
-- Ecualizador: la interfaz (5 bandas, presets) funciona y guarda los ajustes, pero aún no modifica el sonido en Windows.
+- Ecualizador de 5 bandas: usa un filtro de audio de mpv. Requiere un parche a `just_audio_media_kit` que aplica el CI (en local: añadir `Player get player => _player;` en `mediakit_player.dart` del paquete).
 - AutoDJ no analiza BPM en Windows (el analizador de Android usa MediaCodec); el DJ en vivo, el crossfader y el Auto-mix funcionan.

@@ -17,6 +17,7 @@ import 'data/playlists.dart';
 import 'data/tilt.dart';
 import 'data/ui_settings.dart';
 import 'data/vinyl_store.dart';
+import 'platform/audio_hook.dart';
 import 'platform/desktop_shell.dart';
 import 'platform/updater.dart';
 import 'screens/home_screen.dart';
@@ -26,6 +27,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Audio en Windows (just_audio no trae soporte nativo): libmpv vía media_kit.
   JustAudioMediaKit.ensureInitialized(windows: true, linux: false);
+  installAudioHook(); // ecualizador: engancha el filtro de mpv a cada reproductor
   await windowManager.ensureInitialized();
   await windowManager.waitUntilReadyToShow(
     const WindowOptions(
