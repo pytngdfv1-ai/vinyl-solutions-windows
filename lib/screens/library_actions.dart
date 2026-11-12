@@ -8,17 +8,40 @@ import '../data/discogs.dart';
 import '../data/library_settings.dart';
 import '../data/vinyl_store.dart';
 import '../models/vinyl.dart';
+import '../data/play_mode.dart';
+import 'reel_screen.dart';
+import 'cloud_explorer_screen.dart';
 import 'stage_screen.dart';
+import 'objects3d_screen.dart';
 
-/// Abre la pantalla del disco (tocadisco).
-void openStage(BuildContext context, VinylStore store, Vinyl v) {
-  Navigator.of(context).push(
+/// Abre la pantalla del disco (tocadisco, deck o cinta abierta, según el reproductor elegido).
+Future<void> openStage(BuildContext context, VinylStore store, Vinyl v) {
+  // Si no estaba sonando, queda anotado en qué reproductor se empezó.
+  if (PlayerService.instance.nowPlaying.value?.id != v.id) {
+    ViewMode.playingId = v.id;
+    ViewMode.playingMode = ViewMode.current;
+  }
+  if (ViewMode.current == PlayMode.reel) {
+    return Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ReelScreen(vinyl: v)));
+  }
+  return Navigator.of(context).push(
     PageRouteBuilder<void>(
       transitionDuration: const Duration(milliseconds: 450),
       pageBuilder: (_, __, ___) => StageScreen(store: store, vinyl: v),
       transitionsBuilder: (_, a, __, child) => FadeTransition(opacity: a, child: child),
     ),
   );
+}
+
+/// Abre lo que está sonando (chip minimizado) en el reproductor donde se empezó.
+Future<void> openPlaying(BuildContext context, VinylStore store, Vinyl v) async {
+  final prev = ViewMode.current;
+  ViewMode.current = ViewMode.playingId == v.id ? ViewMode.playingMode : null;
+  try {
+    await openStage(context, store, v);
+  } finally {
+    ViewMode.current = prev;
+  }
 }
 
 /// Agrega un disco a mano (biblioteca "Manuales").
@@ -30,7 +53,7 @@ Future<void> addDisc(BuildContext context, VinylStore store) async {
   if (r != null) await store.add(artist: r.$1, title: r.$2, year: r.$3);
 }
 
-Future<void> showLibrarySettings(BuildContext context) async {
+Future<void> showLibrarySettings(BuildContext context, {VinylStore? store}) async {
   var value = LibrarySettings.minTracks.toDouble();
   var lite = BookletLite.auto;
   var beside = BookletLite.beside;
@@ -58,6 +81,23 @@ Future<void> showLibrarySettings(BuildContext context) async {
               divisions: 14,
               label: '${value.round()}',
               onChanged: (v) => setLocal(() => value = v),
+            ),
+            if (store != null)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.view_in_ar),
+              title: const Text('Objetos 3D'),
+              subtitle: const Text('Elige discos y cassettes: trasera y etiqueta', style: TextStyle(fontSize: 12)),
+              onTap: () => Navigator.of(ctx).push(MaterialPageRoute<void>(builder: (_) => Objects3DScreen(store: store!))),
+            ),
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.folder_open),
+              title: const Text('Explorador de la nube'),
+              subtitle: const Text('Mover, renombrar, borrar y crear carpetas', style: TextStyle(fontSize: 12)),
+              onTap: () => openCloudExplorer(ctx),
             ),
             SwitchListTile(
               dense: true,

@@ -14,12 +14,15 @@ class LibraryRing extends StatefulWidget {
     required this.onPick,
     this.onLongPress,
     this.emptyText = 'No hay nada aquí',
+    this.focusId,
   });
+
 
   final List<Vinyl> items;
   final ValueChanged<Vinyl> onPick;
   final ValueChanged<Vinyl>? onLongPress;
   final String emptyText;
+  final String? focusId;
 
   static const perRing = 24;
 
@@ -29,6 +32,20 @@ class LibraryRing extends StatefulWidget {
 
 class _LibraryRingState extends State<LibraryRing> {
   int _ring = 0;
+  int _focus = -1; // posición dentro del anillo inicial
+
+  @override
+  void initState() {
+    super.initState();
+    final id = widget.focusId;
+    if (id != null) {
+      final i = widget.items.indexWhere((v) => v.id == id);
+      if (i >= 0) {
+        _ring = i ~/ LibraryRing.perRing;
+        _focus = i % LibraryRing.perRing;
+      }
+    }
+  }
 
   int get _rings => (widget.items.length / LibraryRing.perRing).ceil();
 
@@ -47,7 +64,10 @@ class _LibraryRingState extends State<LibraryRing> {
 
   void _go(int r) {
     if (r < 0 || r >= _rings || r == _ring) return;
-    setState(() => _ring = r);
+    setState(() {
+      _ring = r;
+      _focus = -1;
+    });
   }
 
   void _pickRing() {
@@ -81,7 +101,7 @@ class _LibraryRingState extends State<LibraryRing> {
     }
     if (_ring >= _rings) _ring = _rings - 1;
     final slice = _slice(_ring);
-    final allCassette = slice.every((v) => v.single || v.cassette);
+    final allCassette = slice.every((v) => v.isTape);
     final topPad = MediaQuery.of(context).padding.top + 56;
     return Container(
       decoration: const BoxDecoration(
@@ -108,10 +128,11 @@ class _LibraryRingState extends State<LibraryRing> {
                   child: Ring360(
                     key: ValueKey('ring$_ring|${slice.length}'),
                     count: slice.length,
+                    initial: _focus < 0 ? 0 : _focus,
                     aspect: allCassette ? 0.63 : 1.0,
                     itemBuilder: (_, i) {
                       final v = slice[i];
-                      return (v.single || v.cassette)
+                      return (v.isTape)
                           ? Cassette3D(vinyl: v)
                           : ClipRRect(borderRadius: BorderRadius.circular(8), child: CoverArt(vinyl: v, radius: 0));
                     },

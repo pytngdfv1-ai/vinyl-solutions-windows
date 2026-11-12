@@ -32,18 +32,18 @@ class Cajon {
   /// Nombre editable por el usuario (o el de fábrica).
   String get name => ChestNames.of(this);
 
-  /// Un cover va solo a su cajón de covers; lo que no tiene idioma, a "Sin clasificar".
+  /// Lo que no tiene idioma va a "Sin clasificar".
   bool matches(Vinyl v) {
     if (v.isDivider) return false;
     if (kind == CajonKind.unclassified) return v.lang == null;
     if (v.lang != lang) return false;
+    // Sin cajón de covers: los cassettes y covers viven en Álbumes o Sueltos.
     switch (kind) {
-      case CajonKind.covers:
-        return v.cassette;
       case CajonKind.singles:
-        return !v.cassette && v.single;
+        return v.single;
       case CajonKind.albums:
-        return !v.cassette && !v.single;
+        return !v.single;
+      case CajonKind.covers:
       case CajonKind.unclassified:
         return false;
     }
@@ -55,8 +55,6 @@ class Cajon {
     Cajon(CajonKind.singles, 'en'),
     Cajon(CajonKind.singles, 'es'),
     Cajon(CajonKind.unclassified, null),
-    Cajon(CajonKind.covers, 'en'),
-    Cajon(CajonKind.covers, 'es'),
   ];
 }
 

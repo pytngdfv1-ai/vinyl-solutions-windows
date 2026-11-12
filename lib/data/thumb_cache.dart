@@ -78,6 +78,16 @@ class ThumbCache {
     }
   }
 
+  /// Descarga cruda (sin reducir) de un archivo de la nube.
+  static Future<Uint8List?> rawBytes(String url) async {
+    try {
+      final res = await http.get(Uri.parse(url), headers: KoofrSettings.headersFor(url)).timeout(const Duration(seconds: 30));
+      return res.statusCode == 200 ? res.bodyBytes : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Tamaño usado por la caché (bytes).
   static Future<int> size() async {
     var n = 0;

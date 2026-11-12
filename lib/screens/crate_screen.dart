@@ -15,6 +15,7 @@ import '../data/ui_settings.dart';
 import 'koofr_screen.dart';
 import 'local_screen.dart';
 import 'library_actions.dart';
+import 'object_viewer_screen.dart';
 
 enum _Filter { all, owned }
 
@@ -24,6 +25,7 @@ class CrateScreen extends StatefulWidget {
     required this.store,
     required this.cajon,
     required this.title,
+    this.focusId,
   });
 
   final VinylStore store;
@@ -31,6 +33,9 @@ class CrateScreen extends StatefulWidget {
   /// Cajón (tipo + idioma) y su título.
   final Cajon cajon;
   final String title;
+
+  /// Disco a mostrar al abrir (viene del buscador).
+  final String? focusId;
 
   @override
   State<CrateScreen> createState() => _CrateScreenState();
@@ -72,7 +77,7 @@ class _CrateScreenState extends State<CrateScreen> {
     }
   }
 
-  Future<void> _openSettings() => showLibrarySettings(context);
+  Future<void> _openSettings() => showLibrarySettings(context, store: widget.store);
 
   Future<void> _confirmClear() => confirmClearLibrary(context, widget.store);
 
@@ -132,6 +137,35 @@ class _CrateScreenState extends State<CrateScreen> {
           onTap: () => pick(g),
         ),
     ];
+  }
+
+  Future<void> _longPress(Vinyl v) async {
+    final act = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.view_in_ar),
+              title: const Text('Ver objeto (dar vuelta)'),
+              onTap: () => Navigator.pop(ctx, 'view'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Borrar de la biblioteca'),
+              onTap: () => Navigator.pop(ctx, 'del'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || act == null) return;
+    if (act == 'view') {
+      await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ObjectViewerScreen(vinyl: v)));
+    } else {
+      _confirmDelete(v);
+    }
   }
 
   @override
@@ -266,18 +300,20 @@ class _CrateScreenState extends State<CrateScreen> {
                       ? LibraryRing(
                           key: ValueKey('ring|$_filter|$_genre|$_lib'),
                           emptyText: 'No hay nada en "${widget.title}"',
+                          focusId: widget.focusId,
                           items: widget.cajon.kind == CajonKind.covers
                               ? ([...filtered]..sort((a, b) => a.artist.toLowerCase().compareTo(b.artist.toLowerCase())))
                               : [for (final v in items) if (!v.isDivider) v],
                           onPick: _open,
-                          onLongPress: _confirmDelete,
+                          onLongPress: _longPress,
                         )
                       : CrateView(
                           key: ValueKey('$_filter|$_genre|$_lib'),
                           emptyText: 'No hay nada en "${widget.title}"',
+                          focusId: widget.focusId,
                           items: items,
                           onPick: _open,
-                          onLongPress: _confirmDelete,
+                          onLongPress: _longPress,
                         ),
                 ),
               ),
@@ -324,7 +360,9 @@ class _CrateScreenState extends State<CrateScreen> {
                         child: Align(
                           alignment: Alignment.centerRight,
                           child: NowPlayingChip(
-                            onOpen: (v) => _open(
+                            onOpen: (v) => openPlaying(
+                              context,
+                              widget.store,
                               widget.store.items.firstWhere((e) => e.id == v.id, orElse: () => v),
                             ),
                           ),

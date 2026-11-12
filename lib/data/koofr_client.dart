@@ -27,6 +27,14 @@ class MovePlan {
   final bool isDir;
 }
 
+/// Elemento de una carpeta de la nube (para el explorador).
+class CloudEntry {
+  const CloudEntry(this.name, this.isDir, this.size);
+  final String name;
+  final bool isDir;
+  final int size;
+}
+
 class _Entry {
   _Entry(this.uri, this.isDir);
   final Uri uri;
@@ -238,6 +246,93 @@ class KoofrClient {
     _fail(res.statusCode);
   }
 
+  // ---- Explorador de la nube ----
+
+  /// Contenido de la carpeta [segs] (relativa a la carpeta raíz), con tamaños.
+  Future<List<CloudEntry>> browse(List<String> segs) async {
+    final dir = _under(segs, dir: true);
+    final req = http.Request('PROPFIND', dir)
+      ..headers.addAll({...settings.headers, 'Depth': '1', 'Content-Type': 'application/xml'})
+      ..body = '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop>'
+          '<d:resourcetype/><d:getcontentlength/></d:prop></d:propfind>';
+    final res = await http.Response.fromStream(await _http.send(req));
+    if (res.statusCode != 207 && res.statusCode != 200) _fail(res.statusCode);
+    final doc = XmlDocument.parse(utf8.decode(res.bodyBytes));
+    final self = _norm(dir);
+    final out = <CloudEntry>[];
+    for (final r in doc.findAllElements('response', namespace: '*')) {
+      final hrefs = r.findElements('href', namespace: '*');
+      if (hrefs.isEmpty) continue;
+      final uri = _root.resolve(hrefs.first.innerText.trim());
+      if (_norm(uri) == self) continue;
+      final isDir = r.findAllElements('collection', namespace: '*').isNotEmpty;
+      final len = r.findAllElements('getcontentlength', namespace: '*');
+      final e = _Entry(uri, isDir);
+      out.add(CloudEntry(e.name, isDir, len.isEmpty ? 0 : int.tryParse(len.first.innerText.trim()) ?? 0));
+    }
+    out.sort((a, b) {
+      if (a.isDir != b.isDir) return a.isDir ? -1 : 1;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    return out;
+  }
+
+  /// Renombra un archivo o carpeta (sin sobrescribir).
+  Future<void> rename(List<String> segs, String newName, {required bool isDir}) async {
+    final n = _clean(newName);
+    if (n.isEmpty) throw const KoofrException('Nombre vacío');
+    final to = [...segs.sublist(0, segs.length - 1), n];
+    if (_same(segs, to)) return;
+    await _move(_under(segs, dir: isDir), _under(to, dir: isDir));
+  }
+
+  /// Mueve un archivo o carpeta dentro de la carpeta [destDir] (sin sobrescribir).
+  Future<void> moveInto(List<String> from, List<String> destDir, {required bool isDir}) async {
+    if (isUnder(from, destDir)) throw const KoofrException('No se puede mover una carpeta dentro de sí misma');
+    await execute(MovePlan(from, [...destDir, from.last], isDir: isDir));
+  }
+
+  bool _isAudio(String name) {
+    final n = name.toLowerCase();
+    return _audioExt.any(n.endsWith);
+  }
+
+  /// Carpetas (las de mayor nivel) que no tienen ningún audio dentro, ni en sus subcarpetas.
+  Future<List<List<String>>> foldersWithoutAudio(
+    List<String> start, {
+    void Function(String)? onProgress,
+    int maxDirs = 800,
+  }) async {
+    var seen = 0;
+    Future<(bool, List<List<String>>)> walk(List<String> segs, int depth) async {
+      seen++;
+      if (seen > maxDirs || depth > 7) return (true, <List<String>>[]);
+      onProgress?.call(segs.isEmpty ? '/' : segs.join('/'));
+      final items = await browse(segs);
+      var has = items.any((e) => !e.isDir && _isAudio(e.name));
+      final kids = <(List<String>, bool, List<List<String>>)>[];
+      for (final e in items.where((e) => e.isDir && e.name != '_3d')) {
+        final cs = [...segs, e.name];
+        final r = await walk(cs, depth + 1);
+        kids.add((cs, r.$1, r.$2));
+        if (r.$1) has = true;
+      }
+      if (!has) return (false, <List<String>>[]);
+      final out = <List<String>>[];
+      for (final k in kids) {
+        if (k.$2) {
+          out.addAll(k.$3);
+        } else {
+          out.add(k.$1);
+        }
+      }
+      return (true, out);
+    }
+
+    final r = await walk(start, 0);
+    return r.$1 ? r.$2 : [start];
+  }
+
   static bool _same(List<String> a, List<String> b) =>
       a.length == b.length && [for (var i = 0; i < a.length; i++) a[i] == b[i]].every((x) => x);
 
@@ -439,6 +534,7 @@ class KoofrClient {
       if (_dirs >= _maxDirs) return;
       // Carpeta de copias duplicadas apartadas: no es música de la biblioteca.
       if (names.isEmpty && group == null && d.name == '_duplicados') continue;
+      if (d.name == '_3d') continue;
       onProgress?.call(d.name);
       final sub = await _list(d.uri);
       if (split && names.isEmpty && group == null) {

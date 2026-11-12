@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../audio/player_service.dart';
 import '../data/vinyl_store.dart';
 import '../models/vinyl.dart';
 import '../theme.dart';
 import '../widgets/cover_art.dart';
+import '../data/cajon.dart';
+import 'crate_screen.dart';
 import 'library_actions.dart';
 
 /// Buscador general: discos por artista o título, y temas por nombre.
@@ -65,19 +66,16 @@ class _SearchScreenState extends State<SearchScreen> {
     return (discs.take(60).toList(), tracks);
   }
 
-  Future<void> _openTrack(_Hit h) async {
-    final audio = PlayerService.instance;
-    final i = h.track ?? 0;
-    try {
-      if (audio.nowPlaying.value?.id == h.v.id) {
-        await audio.goTrack(i);
-      } else {
-        await audio.start(h.v, index: i);
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo reproducir: $e')));
+  /// Abre la biblioteca (anillo) que contiene el disco, posicionada en él; no reproduce.
+  void _showInLibrary(Vinyl v) {
+    final c = Cajon.all.where((c) => c.matches(v)).firstOrNull;
+    if (c == null) {
+      openStage(context, widget.store, v);
+      return;
     }
-    if (mounted) openStage(context, widget.store, h.v);
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => CrateScreen(store: widget.store, cajon: c, title: c.name, focusId: v.id),
+    ));
   }
 
   @override
@@ -126,7 +124,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         title: Text(h.v.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                         subtitle: Text('${h.v.artist}${h.v.year > 0 ? ' · ${h.v.year}' : ''}',
                             maxLines: 1, overflow: TextOverflow.ellipsis),
-                        onTap: () => openStage(context, widget.store, h.v),
+                        onTap: () => _showInLibrary(h.v),
                       ),
                     if (tracks.isNotEmpty) _head('Temas (${tracks.length})'),
                     for (final h in tracks)
@@ -134,8 +132,8 @@ class _SearchScreenState extends State<SearchScreen> {
                         leading: SizedBox(width: 48, height: 48, child: CoverArt(vinyl: h.v)),
                         title: Text(h.v.tracks[h.track!], maxLines: 1, overflow: TextOverflow.ellipsis),
                         subtitle: Text('${h.v.artist} · ${h.v.title}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                        trailing: const Icon(Icons.play_arrow),
-                        onTap: () => _openTrack(h),
+                        trailing: const Icon(Icons.library_music_outlined),
+                        onTap: () => _showInLibrary(h.v),
                       ),
                   ],
                 ),

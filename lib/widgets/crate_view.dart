@@ -20,12 +20,14 @@ class CrateView extends StatefulWidget {
     required this.onPick,
     this.onLongPress,
     this.emptyText = 'Biblioteca vacía\nToca + y elige "Conectar Koofr"',
+    this.focusId,
   });
 
   final List<Vinyl> items;
   final ValueChanged<Vinyl> onPick;
   final ValueChanged<Vinyl>? onLongPress;
   final String emptyText;
+  final String? focusId;
 
   @override
   State<CrateView> createState() => _CrateViewState();
@@ -43,6 +45,8 @@ class _CrateViewState extends State<CrateView>
   @override
   void initState() {
     super.initState();
+    final fi = widget.focusId == null ? -1 : widget.items.indexWhere((v) => v.id == widget.focusId);
+    if (fi >= 0) _pos = fi.toDouble();
     _ctl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 380),

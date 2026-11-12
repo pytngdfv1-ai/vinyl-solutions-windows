@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 
+import '../data/equalizer.dart';
 import '../data/koofr_settings.dart';
 import '../models/vinyl.dart';
 import 'koofr_proxy.dart';
@@ -84,6 +85,7 @@ class PlayerService {
           _durations.clear();
           _loadedId = v.id;
           nowPlaying.value = v;
+          unawaited(Eq.apply());
           unawaited(player.play());
           return;
         } catch (e) {
